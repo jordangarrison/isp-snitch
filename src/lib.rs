@@ -1,5 +1,6 @@
 pub mod aggregate;
 pub mod analysis;
+pub mod blame;
 pub mod config;
 pub mod icmp;
 pub mod service;

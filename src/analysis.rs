@@ -47,6 +47,9 @@ pub struct HopStat {
     /// Lowest loss of this hop and every hop after it. Loss that does not
     /// carry through to the target is ICMP rate limiting, not real loss.
     pub eff_loss_pct: f64,
+    /// Effective loss that starts at this hop: its `eff_loss_pct` minus the
+    /// previous hop's. Summed over a path it equals the target's loss.
+    pub added_loss_pct: f64,
     pub rate_limited: bool,
     pub reached: bool,
     pub avg_ms: Option<f64>,
@@ -76,6 +79,7 @@ pub fn analyze(rows: &[HopBucket]) -> Vec<HopStat> {
                 recv: r.recv,
                 loss_pct,
                 eff_loss_pct: loss_pct,
+                added_loss_pct: 0.0,
                 rate_limited: false,
                 reached: r.reached,
                 avg_ms: (r.recv > 0).then(|| r.rtt_sum_us as f64 / r.recv as f64 / 1000.0),
@@ -90,6 +94,11 @@ pub fn analyze(rows: &[HopBucket]) -> Vec<HopStat> {
         s.eff_loss_pct = floor;
         s.rate_limited =
             s.sent >= RATE_LIMIT_MIN_SENT && s.loss_pct - s.eff_loss_pct >= RATE_LIMIT_GAP_PCT;
+    }
+    let mut prev = 0.0;
+    for s in stats.iter_mut() {
+        s.added_loss_pct = s.eff_loss_pct - prev;
+        prev = s.eff_loss_pct;
     }
     stats
 }
@@ -241,6 +250,23 @@ mod tests {
         assert!((s[3].eff_loss_pct - 10.0).abs() < 1e-9);
         assert!(!s[2].rate_limited);
         assert_eq!(s[1].eff_loss_pct, 0.0);
+    }
+
+    #[test]
+    fn added_loss_is_where_effective_loss_starts() {
+        let rows = vec![
+            b(1, 100, 98, false),
+            b(2, 100, 60, false),
+            b(3, 100, 95, false),
+            b(4, 100, 93, true),
+        ];
+        let added: Vec<f64> = analyze(&rows).iter().map(|s| s.added_loss_pct).collect();
+        let want = [2.0, 3.0, 0.0, 2.0];
+        for (a, w) in added.iter().zip(want) {
+            assert!((a - w).abs() < 1e-9, "{added:?}");
+        }
+        let total: f64 = added.iter().sum();
+        assert!((total - 7.0).abs() < 1e-9, "sums to target loss");
     }
 
     #[test]
