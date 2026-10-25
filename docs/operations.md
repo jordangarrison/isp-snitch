@@ -54,6 +54,19 @@ sudo ufw allow from 192.168.1.0/24 to any port 9180 proto tcp
 
 There is no login. Do not expose the port beyond the LAN.
 
+## Access over Tailscale
+
+Listen on all addresses, and open the port only on the tailnet interface:
+
+```
+LISTEN=0.0.0.0:9180 ./scripts/install.sh      # first install; or edit listen in the config
+sudo ufw allow in on tailscale0 to any port 9180 proto tcp comment isp-snitch
+```
+
+Then browse to `http://<host>.<tailnet>.ts.net:9180/`. Do not bind `listen`
+to the Tailscale IP itself: if tailscaled is not up yet at boot, the bind
+fails and the service (and its probing) restarts in a loop until it is.
+
 ## Backup
 
 The database is one SQLite file in WAL mode. Take a consistent copy while

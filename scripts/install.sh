@@ -4,10 +4,12 @@
 #
 #   ./scripts/install.sh            build + install/update + (re)start
 #   INTERFACE=eth0 ./scripts/install.sh   first install with another interface
+#   LISTEN=0.0.0.0:9180 ./scripts/install.sh   first install listening on all addresses
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 INTERFACE="${INTERFACE:-enp5s0}"
+LISTEN="${LISTEN:-127.0.0.1:9180}"
 
 devbox run build
 
@@ -15,9 +17,10 @@ sudo install -Dm755 target/release/isp-snitch /usr/local/bin/isp-snitch
 sudo install -Dm644 deploy/systemd/isp-snitch.service /etc/systemd/system/isp-snitch.service
 
 if [[ ! -f /etc/isp-snitch/config.toml ]]; then
-    sed -e "s/^interface = .*/interface = \"$INTERFACE\"/" deploy/config.example.toml \
+    sed -e "s/^interface = .*/interface = \"$INTERFACE\"/" \
+        -e "s/^listen = .*/listen = \"$LISTEN\"/" deploy/config.example.toml \
         | sudo install -Dm644 /dev/stdin /etc/isp-snitch/config.toml
-    echo "wrote /etc/isp-snitch/config.toml (interface = $INTERFACE)"
+    echo "wrote /etc/isp-snitch/config.toml (interface = $INTERFACE, listen = $LISTEN)"
 else
     echo "kept existing /etc/isp-snitch/config.toml"
 fi
