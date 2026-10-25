@@ -282,3 +282,16 @@ async fn path_change_does_not_blame_rate_limited_router() {
     assert!(loss < 0.01, "summary blamed the router: {loss}");
     assert_eq!(v["targets"][0]["lossy_buckets"], 0);
 }
+
+#[tokio::test]
+async fn absurd_range_is_400() {
+    let s = seed();
+    for q in [
+        "from=-5000000000000000000&to=5000000000000000000",
+        "from=-9223372036854775808",
+        "to=9223372036854775807",
+    ] {
+        let (st, v) = get(&s.state, &format!("/api/targets/{}/series?{q}", s.id)).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{q}: {v}");
+    }
+}

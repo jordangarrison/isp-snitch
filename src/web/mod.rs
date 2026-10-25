@@ -105,9 +105,23 @@ fn parse_param(q: &HashMap<String, String>, key: &str) -> Result<Option<i64>, Ap
         .transpose()
 }
 
+/// 2100-01-01: bounds `from`/`to` so range arithmetic cannot overflow.
+const MAX_TS: i64 = 4_102_444_800;
+
 fn range(q: &HashMap<String, String>, now: i64) -> Result<(i64, i64), ApiError> {
+    let in_bounds = |v: i64| (0..=MAX_TS).contains(&v);
     let to = parse_param(q, "to")?.unwrap_or(now);
+    if !in_bounds(to) {
+        return Err(ApiError::bad_request(
+            "to must be unix seconds between 1970 and 2100",
+        ));
+    }
     let from = parse_param(q, "from")?.unwrap_or(to - DEFAULT_RANGE_SECS);
+    if !in_bounds(from) {
+        return Err(ApiError::bad_request(
+            "from must be unix seconds between 1970 and 2100",
+        ));
+    }
     if from >= to {
         return Err(ApiError::bad_request("from must be before to"));
     }

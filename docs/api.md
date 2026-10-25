@@ -9,6 +9,8 @@ All endpoints are `GET` and return JSON. Times are unix seconds (UTC).
 | `from` | `to - 86400`   | integer, must be before `to`         |
 | `to`   | now            | integer; range at most 400 days      |
 
+Both must be between 0 and 4102444800 (year 2100).
+
 Errors: `{"error": "<message>"}` with status 400 (bad params, bad id) or 404
 (unknown target id). Database failures return 500.
 
