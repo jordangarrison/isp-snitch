@@ -113,6 +113,21 @@ impl PingSocket {
         Ok(None)
     }
 
+    fn clear_so_error(&self) {
+        let mut v: libc::c_int = 0;
+        let mut len = size_of::<libc::c_int>() as libc::socklen_t;
+        // SAFETY: v and len live for the call; sizes match.
+        unsafe {
+            libc::getsockopt(
+                self.fd.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_ERROR,
+                (&mut v as *mut libc::c_int).cast(),
+                &mut len,
+            );
+        }
+    }
+
     fn read_reply(&self) -> io::Result<Option<TransportEvent>> {
         let mut buf = [0u8; 576];
         let mut from: libc::sockaddr_in = unsafe { zeroed() };
@@ -149,6 +164,9 @@ fn is_pending_icmp_error(e: &io::Error) -> bool {
                 | libc::EPROTO
                 | libc::ENOPROTOOPT
                 | libc::EMSGSIZE
+                | libc::EREMOTEIO
+                | libc::ENONET
+                | libc::EOPNOTSUPP
         )
     )
 }
@@ -198,7 +216,9 @@ impl Transport for PingSocket {
                 match self.read_errqueue() {
                     Ok(Some(ev)) => return Ok(Some((ev, Instant::now()))),
                     Ok(None) => {}
-                    Err(e) if would_block(&e) => {}
+                    // sk_err set with an empty error queue (queue overflowed):
+                    // read SO_ERROR to clear it, or poll keeps reporting POLLERR.
+                    Err(e) if would_block(&e) => self.clear_so_error(),
                     Err(e) => return Err(e),
                 }
             }
@@ -244,5 +264,26 @@ fn setsockopt_bytes(fd: &OwnedFd, level: i32, name: i32, v: &[u8]) -> io::Result
         Err(io::Error::last_os_error())
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redirect_and_quench_errors_are_pending_icmp_errors() {
+        for errno in [
+            libc::EHOSTUNREACH,
+            libc::EREMOTEIO,
+            libc::ENONET,
+            libc::EOPNOTSUPP,
+        ] {
+            let e = io::Error::from_raw_os_error(errno);
+            assert!(is_pending_icmp_error(&e), "errno {errno}");
+        }
+        assert!(!is_pending_icmp_error(&io::Error::from_raw_os_error(
+            libc::ENODEV
+        )));
     }
 }
