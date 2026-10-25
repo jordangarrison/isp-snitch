@@ -22,6 +22,30 @@ The unit uses `DynamicUser=yes` with no capabilities. Data are in
 `/var/lib/isp-snitch/isp-snitch.db` (systemd maps it to
 `/var/lib/private/isp-snitch/`).
 
+## Redeploy without a password
+
+One-time setup (asks for your sudo password):
+
+```
+./scripts/install-deploy-access.sh
+```
+
+It installs a root-owned `/usr/local/sbin/isp-snitch-deploy` and a sudoers rule
+that lets you (and agents running as you) run only that command, with no
+arguments, without a password. From then on:
+
+```
+devbox run deploy     # cargo build --release, then the deploy command
+```
+
+The deploy command reads `target/release/isp-snitch` as you (so a symlink
+cannot make it copy a root-only file), checks the config with the new binary
+as you, swaps `/usr/local/bin/isp-snitch` atomically, restarts the service and
+fails if it does not come back `active`. It never runs the new binary as root.
+Unit file and config changes are not covered: use `./scripts/install.sh`.
+
+Undo: `sudo rm /etc/sudoers.d/isp-snitch /usr/local/sbin/isp-snitch-deploy`.
+
 ## Check that it works
 
 ```

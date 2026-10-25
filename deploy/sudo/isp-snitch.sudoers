@@ -1,0 +1,3 @@
+# Lets @OWNER@ redeploy isp-snitch without a password. The trailing "" allows
+# the command only with no arguments.
+@OWNER@ ALL=(root) NOPASSWD: /usr/local/sbin/isp-snitch-deploy ""

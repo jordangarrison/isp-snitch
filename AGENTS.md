@@ -17,6 +17,7 @@ devbox run check   # cargo fmt --check && clippy -D warnings && cargo test
 ```
 
 - All tools come from `devbox.json`. Do not install toolchains globally.
+- `check` also runs shellcheck on `scripts/*.sh` and `deploy/sudo/isp-snitch-deploy`.
 - `devbox run fmt` fixes formatting.
 - CI (`.github/workflows/ci.yml`) runs the same command.
 - Tests in `tests/live_lo.rs` and `tests/service_lo.rs` open real ICMP sockets
@@ -32,6 +33,7 @@ devbox run check   # cargo fmt --check && clippy -D warnings && cargo test
 | API | `curl -s localhost:9180/api/targets` while `devbox run dev` runs |
 | UI | open `http://localhost:9180/`, or take a headless screenshot: `chromium --headless=new --screenshot=out.png --window-size=1280,1100 --virtual-time-budget=4000 'http://localhost:9180/target/1#r=6h'` |
 | Packaging | `nix --extra-experimental-features 'nix-command flakes' build .#default` and `.#docker` |
+| Deployed service (BigOne) | `devbox run deploy` (passwordless; see `docs/operations.md`), then `journalctl -u isp-snitch -n 20 -o cat` shows `startup` and a `probe_flush` within 70 s |
 
 ## Repo map
 

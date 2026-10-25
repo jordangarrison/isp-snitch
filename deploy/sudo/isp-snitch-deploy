@@ -1,0 +1,36 @@
+#!/bin/bash
+# Root-owned redeploy for isp-snitch: replaces the service binary with the
+# owner's latest release build, then restarts the service. No arguments.
+# Installed by scripts/install-deploy-access.sh, which fills in @OWNER@/@REPO@.
+# Unit file and config changes stay out of this path on purpose: they can run
+# commands as root, so they still need a password (scripts/install.sh).
+set -euo pipefail
+
+OWNER="@OWNER@"
+SRC="@REPO@/target/release/isp-snitch"
+DEST=/usr/local/bin/isp-snitch
+CONFIG=/etc/isp-snitch/config.toml
+
+if [[ $# -ne 0 ]]; then
+    echo "usage: isp-snitch-deploy (takes no arguments)" >&2
+    exit 2
+fi
+
+tmp=$(mktemp /usr/local/bin/.isp-snitch.XXXXXX)
+trap 'rm -f "$tmp"' EXIT
+
+# Read as the owner: a symlinked SRC cannot pull in a file only root can read.
+runuser -u "$OWNER" -- cat -- "$SRC" > "$tmp"
+chmod 755 "$tmp"
+
+# Validate as the owner. The new binary never runs as root.
+runuser -u "$OWNER" -- "$tmp" check-config --config "$CONFIG" > /dev/null
+
+mv -f "$tmp" "$DEST"
+trap - EXIT
+
+systemctl restart isp-snitch.service
+sleep 2
+state=$(systemctl is-active isp-snitch.service || true)
+echo "isp-snitch: $state ($(runuser -u "$OWNER" -- "$DEST" --version))"
+[[ "$state" == active ]]
