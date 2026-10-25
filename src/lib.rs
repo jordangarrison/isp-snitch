@@ -4,4 +4,5 @@ pub mod config;
 pub mod icmp;
 pub mod store;
 pub mod tracer;
+pub mod web;
 pub mod wide;

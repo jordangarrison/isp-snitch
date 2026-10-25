@@ -84,6 +84,48 @@ pub fn analyze(rows: &[HopBucket]) -> Vec<HopStat> {
     stats
 }
 
+/// Sums many buckets into one row per ttl (for a whole range or a slice).
+/// `addr` comes from the bucket with the most answers at that ttl.
+pub fn merge_by_ttl(rows: &[HopBucket]) -> Vec<HopBucket> {
+    let mut out: std::collections::BTreeMap<u8, (HopBucket, u32)> = Default::default();
+    for r in rows {
+        let (m, best_recv) = out.entry(r.ttl).or_insert_with(|| {
+            (
+                HopBucket {
+                    ts: r.ts,
+                    ttl: r.ttl,
+                    sent: 0,
+                    recv: 0,
+                    rtt_sum_us: 0,
+                    rtt_min_us: None,
+                    rtt_max_us: None,
+                    addr: None,
+                    reached: false,
+                },
+                0,
+            )
+        });
+        m.ts = m.ts.min(r.ts);
+        m.sent += r.sent;
+        m.recv += r.recv;
+        m.rtt_sum_us += r.rtt_sum_us;
+        m.rtt_min_us = match (m.rtt_min_us, r.rtt_min_us) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        m.rtt_max_us = match (m.rtt_max_us, r.rtt_max_us) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        };
+        m.reached |= r.reached;
+        if r.addr.is_some() && (m.addr.is_none() || r.recv >= *best_recv) {
+            m.addr = r.addr.clone();
+            *best_recv = r.recv;
+        }
+    }
+    out.into_values().map(|(m, _)| m).collect()
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TargetPoint {
     pub loss_pct: f64,
@@ -225,5 +267,27 @@ mod tests {
     #[test]
     fn empty_bucket_is_a_gap() {
         assert_eq!(target_point(&analyze(&[])), None);
+    }
+
+    #[test]
+    fn merge_by_ttl_sums_buckets() {
+        let mut a = b(1, 10, 8, false);
+        a.ts = 0;
+        let mut c = b(1, 10, 10, false);
+        c.ts = 60;
+        c.addr = Some("10.0.0.99".into());
+        c.rtt_min_us = Some(1_000);
+        let d = b(2, 10, 10, true);
+        let m = merge_by_ttl(&[a, c, d]);
+        assert_eq!(m.len(), 2);
+        assert_eq!((m[0].ttl, m[0].sent, m[0].recv), (1, 20, 18));
+        assert_eq!(m[0].rtt_min_us, Some(1_000));
+        assert_eq!(m[0].rtt_max_us, Some(20_000));
+        assert_eq!(
+            m[0].addr.as_deref(),
+            Some("10.0.0.99"),
+            "addr of the bucket with most answers"
+        );
+        assert!(m[1].reached);
     }
 }
