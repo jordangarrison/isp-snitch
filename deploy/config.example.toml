@@ -1,0 +1,33 @@
+# isp-snitch configuration. Every key except db_path is optional.
+
+# Device the probes leave through (SO_BINDTODEVICE). Remove to follow the
+# routing table, e.g. on a single-NIC host.
+interface = "enp5s0"
+
+# HTTP UI and API. Loopback only by default; use 0.0.0.0:9180 for LAN access
+# (and open the port in the host firewall).
+listen = "127.0.0.1:9180"
+
+db_path = "/var/lib/isp-snitch/isp-snitch.db"
+
+[probe]
+interval_ms = 1000       # one round (a probe per hop) per target, this often
+timeout_ms = 2000        # a probe with no answer after this counts as lost
+max_ttl = 30
+probe_spacing_ms = 5     # gap between the probes of one round
+
+[retention]
+minute_days = 90         # full 1-minute detail
+hour_days = 365          # hourly rollups
+
+[[targets]]
+name = "Cloudflare"
+addr = "1.1.1.1"
+
+[[targets]]
+name = "Google"
+addr = "8.8.8.8"
+
+[[targets]]
+name = "Quad9"
+addr = "9.9.9.9"

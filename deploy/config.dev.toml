@@ -1,0 +1,4 @@
+# Local development config (devbox run dev). Data stay in ./data (git-ignored).
+interface = "enp5s0"
+listen = "127.0.0.1:9180"
+db_path = "data/isp-snitch.db"
