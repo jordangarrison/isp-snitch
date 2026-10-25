@@ -6,6 +6,7 @@
 
 #[cfg(test)]
 mod fake;
+pub mod report;
 pub mod runner;
 
 use crate::icmp::TransportEvent;
