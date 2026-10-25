@@ -2,6 +2,7 @@ pub mod aggregate;
 pub mod analysis;
 pub mod config;
 pub mod icmp;
+pub mod service;
 pub mod store;
 pub mod tracer;
 pub mod web;

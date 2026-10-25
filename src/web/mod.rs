@@ -1,5 +1,7 @@
 //! HTTP API and UI routes. JSON shapes are documented in docs/api.md.
 
+pub mod log;
+
 use crate::analysis::{
     HopBucket, HopStat, MAX_POINTS, Table, analyze, merge_by_ttl, pick_step, pick_table,
     target_point,

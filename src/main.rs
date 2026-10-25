@@ -63,8 +63,10 @@ fn main() {
 }
 
 fn run(config: PathBuf) -> Result<()> {
-    let _cfg = Config::load(&config)?;
-    anyhow::bail!("run is not implemented yet")
+    let cfg = Config::load(&config)?;
+    tokio::runtime::Runtime::new()
+        .context("starting async runtime")?
+        .block_on(isp_snitch::service::run(cfg))
 }
 
 fn check_config(config: PathBuf) -> Result<()> {
