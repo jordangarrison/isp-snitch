@@ -1,5 +1,6 @@
 //! HTTP API and UI routes. JSON shapes are documented in docs/api.md.
 
+pub mod assets;
 pub mod log;
 
 use crate::analysis::{
@@ -46,6 +47,9 @@ impl AppState {
 
 pub fn router(state: AppState) -> Router {
     Router::new()
+        .route("/", get(assets::index))
+        .route("/target/{id}", get(assets::target_page))
+        .route("/assets/{*path}", get(assets::asset))
         .route("/healthz", get(|| async { "ok" }))
         .route("/api/targets", get(targets))
         .route("/api/targets/{id}/series", get(series))

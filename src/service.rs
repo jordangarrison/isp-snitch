@@ -29,6 +29,13 @@ fn unix_now() -> i64 {
         .unwrap_or(0)
 }
 
+/// Time until `FLUSH_DELAY_SECS` past the next minute boundary.
+fn until_next_flush() -> Duration {
+    let now = unix_now();
+    let next = (now - FLUSH_DELAY_SECS).div_euclid(60) * 60 + 60 + FLUSH_DELAY_SECS;
+    Duration::from_secs((next - now).max(1) as u64)
+}
+
 /// Runs until SIGINT or SIGTERM.
 pub async fn run(cfg: Config) -> Result<()> {
     run_until(cfg, shutdown_signal()).await
@@ -100,7 +107,12 @@ pub async fn run_until(
     }
     drop(tx);
 
-    let aggregator = tokio::spawn(aggregate_loop(rx, store.clone(), targets.len()));
+    let aggregator = tokio::spawn(aggregate_loop(
+        rx,
+        store.clone(),
+        targets.len(),
+        until_next_flush,
+    ));
     let maintenance = tokio::spawn(maintenance_loop(store.clone(), cfg.retention.clone()));
 
     let app = web::router(AppState::new(
@@ -187,21 +199,23 @@ async fn aggregate_loop(
     mut rx: mpsc::UnboundedReceiver<CompletedRound>,
     store: Arc<Store>,
     targets: usize,
+    next_flush_in: impl Fn() -> Duration,
 ) -> Result<()> {
     let mut agg = MinuteAggregator::new();
+    // One timer for the whole loop: incoming rounds must not restart it.
+    let timer = tokio::time::sleep(next_flush_in());
+    tokio::pin!(timer);
     loop {
-        let now = unix_now();
-        let next_flush = (now - FLUSH_DELAY_SECS).div_euclid(60) * 60 + 60 + FLUSH_DELAY_SECS;
-        let wait = Duration::from_secs((next_flush - now).max(1) as u64);
         tokio::select! {
             r = rx.recv() => match r {
                 Some(r) => agg.add(&r),
                 None => break,
             },
-            _ = tokio::time::sleep(wait) => {
+            _ = &mut timer => {
                 let minute = unix_now().div_euclid(60) * 60;
                 // A failed write is logged in the flush event; keep running.
                 let _ = write_rows(&store, agg.drain_before(minute), targets, "minute").await;
+                timer.as_mut().reset(tokio::time::Instant::now() + next_flush_in());
             }
         }
     }
@@ -239,5 +253,49 @@ async fn maintenance_loop(store: Arc<Store>, retention: crate::config::Retention
             }
         }
         ev.emit();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::Table;
+    use crate::tracer::ProbeOutcome;
+
+    #[tokio::test]
+    async fn flush_fires_while_rounds_keep_arriving() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let id = store
+            .ensure_target("t", "1.1.1.1".parse().unwrap())
+            .unwrap();
+        let (tx, rx) = mpsc::unbounded_channel();
+        let agg = tokio::spawn(aggregate_loop(rx, store.clone(), 1, || {
+            Duration::from_millis(100)
+        }));
+        // Rounds every 10ms, far faster than the 100ms flush period.
+        for _ in 0..50 {
+            tx.send(CompletedRound {
+                target_id: id,
+                started_unix: 0,
+                probes: vec![ProbeOutcome {
+                    ttl: 1,
+                    rtt: Some(Duration::from_millis(1)),
+                    responder: Some("10.0.0.1".parse().unwrap()),
+                    reached: true,
+                    send_error: false,
+                }],
+            })
+            .unwrap();
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let rows = store.hop_buckets(Table::Minute, id, 0, 60, 60).unwrap();
+        assert!(
+            !rows.is_empty(),
+            "no flush happened while rounds were arriving"
+        );
+        drop(tx);
+        agg.await.unwrap().unwrap();
+        let rows = store.hop_buckets(Table::Minute, id, 0, 60, 60).unwrap();
+        assert_eq!(rows[0].sent, 50);
     }
 }

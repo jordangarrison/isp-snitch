@@ -97,6 +97,11 @@ end to end. isp-snitch keeps mtr-style per-hop data over time and graphs it.
   echo reply, probes with TTL > `d_known` (the last known distance) are
   dropped. If no distance has been known yet, all probes are kept. Probing past
   the target therefore never creates fake hops or fake loss rows.
+- Distance only grows when a router answers at the old distance. The target
+  answers every TTL at or past its distance. So if the probe at `d_known` is
+  lost and a higher-TTL probe gets an echo, that is loss at the target, not a
+  longer path: the round is cut at `d_known` and the horizon stays.
+  (Found in live data on 2026-10-24, during a real 33% loss event.)
 - A send error (interface down, no route) counts as a sent probe with no
   answer, at TTL 1, and increments `send_errors`.
 

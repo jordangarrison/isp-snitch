@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>isp-snitch target</title>
+  <link rel="stylesheet" href="/assets/vendor/uplot/uPlot.min.css">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header class="top">
+    <h1><a href="/" id="home">isp-snitch</a></h1>
+    <span class="crumb" id="crumb">Target</span>
+    <span class="spacer"></span>
+    <span class="range-label" id="range-label"></span>
+    <nav class="ranges" id="ranges" aria-label="Time range"></nav>
+  </header>
+  <main>
+    <section class="card">
+      <div class="head"><h2>Target loss</h2><span class="addr" id="step"></span></div>
+      <div class="chart" id="loss"></div>
+    </section>
+    <section class="card">
+      <div class="head">
+        <h2>Per hop</h2>
+        <span class="spacer"></span>
+        <div class="tabs" role="tablist">
+          <button id="tab-loss" aria-pressed="true">Loss</button>
+          <button id="tab-lat" aria-pressed="false">Latency</button>
+        </div>
+      </div>
+      <div class="heat-wrap"><canvas id="heat" role="img" aria-label="Hop by time heatmap"></canvas></div>
+      <div class="legend" id="legend"></div>
+      <p class="note">Each row is a hop, ordered from your gateway (top) to the target (bottom). Color shows
+        effective loss: loss that carries through to the target. Hatched cells are routers that rate-limit
+        their replies: their loss is not real. Click a column to see the hop table for that time.</p>
+    </section>
+    <section class="card">
+      <div class="head"><h2>Hop table</h2><span class="addr" id="slice-time">Click a heatmap column</span></div>
+      <div class="table-scroll" id="slice"></div>
+    </section>
+  </main>
+  <script src="/assets/vendor/uplot/uPlot.iife.min.js"></script>
+  <script src="/assets/common.js"></script>
+  <script src="/assets/target.js"></script>
+</body>
+</html>

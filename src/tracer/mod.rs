@@ -228,7 +228,20 @@ impl TracerCore {
     fn finish(&mut self, round: RoundState) -> CompletedRound {
         let mut probes: Vec<ProbeOutcome> = round.slots.into_iter().map(|s| s.outcome).collect();
         let failed_round = probes.len() == 1 && probes[0].send_error;
-        let d_round = probes.iter().filter(|p| p.reached).map(|p| p.ttl).min();
+        let mut d_round = probes.iter().filter(|p| p.reached).map(|p| p.ttl).min();
+        // The target answers every TTL at or past its distance, so a reply
+        // beyond the known distance means a longer path only if a router
+        // answered at the old distance. If that probe was lost, it is loss.
+        if let (Some(d), Some(k)) = (d_round, self.d_known)
+            && d > k
+        {
+            let router_at_k = probes
+                .iter()
+                .any(|p| p.ttl == k && p.responder.is_some() && !p.reached);
+            if !router_at_k {
+                d_round = Some(k);
+            }
+        }
         let cut = match d_round {
             Some(d) => {
                 self.d_known = Some(d);
@@ -486,5 +499,37 @@ mod tests {
         let done = core.poll_completed(t0 + ms(1004));
         let order: Vec<i64> = done.iter().map(|r| r.started_unix).collect();
         assert_eq!(order, vec![0, 1]);
+    }
+
+    #[test]
+    fn loss_at_target_does_not_extend_distance() {
+        let t0 = Instant::now();
+        let ms = Duration::from_millis;
+        let mut core = TracerCore::new(1, 30, T);
+        let p = core.begin_round(t0, 0);
+        answer_all(&mut core, &p, 5, t0 + ms(5));
+        core.poll_completed(t0 + ms(10));
+        // Next round probes to 30 (as after a no-reply round). The probe at
+        // TTL 5 is lost; the target answers the TTL 6..30 probes.
+        core.horizon = 30;
+        let p = core.begin_round(t0 + ms(1000), 1);
+        for &(seq, ttl) in &p {
+            if ttl == 5 {
+                continue;
+            }
+            let ev = if ttl > 5 {
+                TransportEvent::EchoReply { seq, from: TARGET }
+            } else {
+                TransportEvent::TimeExceeded {
+                    seq,
+                    from: hop(ttl),
+                }
+            };
+            core.on_event(ev, t0 + ms(1005));
+        }
+        let done = core.poll_completed(t0 + ms(3000));
+        assert_eq!(ttls(&done[0]), vec![1, 2, 3, 4, 5]);
+        assert!(done[0].probes[4].rtt.is_none(), "TTL 5 was lost");
+        assert_eq!(core.horizon(), 5);
     }
 }

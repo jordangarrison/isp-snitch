@@ -225,3 +225,29 @@ async fn unknown_target_is_404() {
     let (st, _) = get(&s.state, "/api/targets/abc/hops").await;
     assert_eq!(st, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn ui_assets_served() {
+    let s = seed();
+    for (uri, ctype) in [
+        ("/", "text/html"),
+        ("/target/1", "text/html"),
+        ("/assets/app.css", "text/css"),
+        ("/assets/overview.js", "text/javascript"),
+        ("/assets/target.js", "text/javascript"),
+        ("/assets/vendor/uplot/uPlot.iife.min.js", "text/javascript"),
+    ] {
+        let resp = router(s.state.clone())
+            .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "{uri}");
+        let ct = resp.headers()["content-type"].to_str().unwrap().to_string();
+        assert!(ct.starts_with(ctype), "{uri}: {ct}");
+    }
+    let resp = router(s.state.clone())
+        .oneshot(Request::get("/assets/nope.js").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}

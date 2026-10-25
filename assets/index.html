@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>isp-snitch</title>
+  <link rel="stylesheet" href="/assets/vendor/uplot/uPlot.min.css">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header class="top">
+    <h1><a href="/">isp-snitch</a></h1>
+    <span class="crumb">Overview</span>
+    <span class="spacer"></span>
+    <span class="range-label" id="range-label"></span>
+    <nav class="ranges" id="ranges" aria-label="Time range"></nav>
+  </header>
+  <main>
+    <div id="targets"><p class="empty">Loading...</p></div>
+    <p class="note">All targets red at the same time: your link or your ISP. One target alone: that target's network.
+      Drag across a chart to zoom. Open a target to see which hop the loss starts at.</p>
+  </main>
+  <script src="/assets/vendor/uplot/uPlot.iife.min.js"></script>
+  <script src="/assets/common.js"></script>
+  <script src="/assets/overview.js"></script>
+</body>
+</html>
