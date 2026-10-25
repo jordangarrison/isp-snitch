@@ -31,7 +31,8 @@ pub struct Segment {
     /// `gateway` (hop 1), `upstream` (hops shared by every target's path) or
     /// `past_split` (hops after the paths divide).
     pub name: &'static str,
-    pub first_ttl: u8,
+    /// `None` = the segment is empty.
+    pub first_ttl: Option<u8>,
     /// `None` = open-ended.
     pub last_ttl: Option<u8>,
     /// Target loss, in percent, that starts inside this segment.
@@ -142,19 +143,19 @@ pub fn report(ts: &[i64], step: i64, grids: &[TargetGrid]) -> WhereReport {
             }
         }
     }
-    let loss_pct: f64 = per_ttl.values().sum();
+    // fold from +0.0: an empty f64 `sum()` is -0.0.
+    let loss_pct = per_ttl.values().fold(0.0, |a, v| a + v);
     let share = |v: f64| (loss_pct > 0.0).then(|| 100.0 * v / loss_pct);
     let seg_loss = |name: &str| -> f64 {
         per_ttl
             .iter()
             .filter(|(t, _)| segment_name(**t, split) == name)
-            .map(|(_, v)| v)
-            .sum()
+            .fold(0.0, |a, (_, v)| a + v)
     };
     let segments = [
-        ("gateway", 1, Some(1)),
-        ("upstream", 2, split),
-        ("past_split", split.map_or(u8::MAX, |s| s + 1), None),
+        ("gateway", Some(1), Some(1)),
+        ("upstream", Some(2), split),
+        ("past_split", split.map(|s| s.saturating_add(1)), None),
     ]
     .into_iter()
     .map(|(name, first_ttl, last_ttl)| {
@@ -341,14 +342,14 @@ mod tests {
         assert_eq!(r.targets_total, 2);
         assert_eq!(
             (seg(&r, "upstream").first_ttl, seg(&r, "upstream").last_ttl),
-            (2, Some(3))
+            (Some(2), Some(3))
         );
         assert_eq!(
             (
                 seg(&r, "past_split").first_ttl,
                 seg(&r, "past_split").last_ttl
             ),
-            (4, None)
+            (Some(4), None)
         );
         assert_eq!(r.hops[2].addr.as_deref(), Some("10.0.3.1"));
         assert_eq!(r.hops[1].addr, None, "ECMP hop has no common addr");
@@ -387,9 +388,22 @@ mod tests {
         let r = report(&[0], 60, &g);
         assert_eq!(r.split_ttl, None);
         let up = seg(&r, "upstream");
-        assert_eq!((up.first_ttl, up.last_ttl), (2, None));
+        assert_eq!((up.first_ttl, up.last_ttl), (Some(2), None));
         assert!(close(up.loss_pct, 10.0));
         assert!(close(seg(&r, "past_split").loss_pct, 0.0));
+        assert_eq!(seg(&r, "past_split").first_ttl, None);
+    }
+
+    #[test]
+    fn no_data_is_plain_zero() {
+        let r = report(&[0], 60, &[grid(1, vec![gap()])]);
+        assert!(
+            r.loss_pct == 0.0 && r.loss_pct.is_sign_positive(),
+            "{}",
+            r.loss_pct
+        );
+        assert!(r.segments.iter().all(|s| s.loss_pct.is_sign_positive()));
+        assert!(r.hops.is_empty());
     }
 
     #[test]

@@ -4,24 +4,64 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>isp-snitch</title>
-  <link rel="stylesheet" href="/assets/vendor/uplot/uPlot.min.css">
-  <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/dash.css">
 </head>
 <body>
-  <header class="top">
-    <h1><a href="/">isp-snitch</a></h1>
-    <span class="crumb">Overview</span>
+  <header class="bar">
+    <span class="brand">isp-snitch</span><span class="dim" id="version"></span>
+    <span class="chip" id="iface"></span>
+    <span id="health" class="health"></span>
     <span class="spacer"></span>
-    <span class="range-label" id="range-label"></span>
     <nav class="ranges" id="ranges" aria-label="Time range"></nav>
+    <span class="dim" id="range-label"></span>
+    <span class="clock" id="clock"></span>
   </header>
-  <main>
-    <div id="targets"><p class="empty">Loading...</p></div>
-    <p class="note">All targets red at the same time: your link or your ISP. One target alone: that target's network.
-      Drag across a chart to zoom. Open a target to see which hop the loss starts at.</p>
+
+  <main class="grid">
+    <section class="box b-loss">
+      <h2>loss<span class="sub" id="loss-sub"></span></h2>
+      <div class="plot" id="loss-wrap"><canvas id="loss"></canvas></div>
+    </section>
+
+    <section class="box b-lat">
+      <h2>latency<span class="sub" id="lat-sub"></span></h2>
+      <div class="plot" id="lat-wrap"><canvas id="lat"></canvas></div>
+    </section>
+
+    <section class="box b-hops">
+      <h2>hops<span class="sub" id="hops-sub"></span></h2>
+      <div class="box-tools">
+        <span id="target-tabs" class="tabs"></span>
+        <span class="spacer"></span>
+        <span class="tabs" id="mode-tabs"></span>
+        <a class="dim" id="detail-link" href="/">detail &#8599;</a>
+      </div>
+      <div class="plot" id="heat-wrap"><canvas id="heat"></canvas></div>
+      <div class="legend" id="heat-legend"></div>
+    </section>
+
+    <section class="box b-where">
+      <h2>where<span class="sub" id="where-sub"></span></h2>
+      <div id="where"></div>
+    </section>
+
+    <section class="box b-inc">
+      <h2>incidents<span class="sub" id="inc-sub"></span></h2>
+      <div class="scroll" id="incidents"></div>
+    </section>
+
+    <section class="box b-trace">
+      <h2>trace<span class="sub" id="trace-sub"></span></h2>
+      <div class="scroll" id="trace"></div>
+    </section>
   </main>
-  <script src="/assets/vendor/uplot/uPlot.iife.min.js"></script>
+
+  <footer class="keys">
+    <span><b>1-5</b> range</span><span><b>&larr; &rarr;</b> target</span><span><b>l</b> loss/latency</span>
+    <span><b>drag</b> zoom</span><span><b>click</b> pick a time</span><span><b>esc</b> back to live</span>
+  </footer>
+
   <script src="/assets/common.js"></script>
-  <script src="/assets/overview.js"></script>
+  <script src="/assets/dash.js"></script>
 </body>
 </html>

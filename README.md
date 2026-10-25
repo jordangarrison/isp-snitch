@@ -7,14 +7,15 @@ to a few highly reachable targets (1.1.1.1, 8.8.8.8, 9.9.9.9). It records
 loss and latency for every hop, every minute, in SQLite, and serves a small
 web UI:
 
-- **Overview**: target loss and latency over 6 hours to 90 days. All targets
-  red at once means your link or your ISP.
-- **Per target**: a hop x time heatmap. Rows are hops from your gateway to
-  the target, so you can see if loss starts at hop 1 (your LAN or gateway)
-  or a few hops upstream (the ISP). Routers that only rate-limit their ICMP
-  (Internet Control Message Protocol) replies are hatched, so they are not
-  blamed.
-- **Hop table**: click any column for an mtr-style table of that time.
+- **Dashboard** (`/`): one dense, btop-style page. Loss and latency strips
+  for every target over 6 hours to 90 days, the hop x time heatmap of a
+  selected target, a **where** box that says which segment the loss starts
+  in (your gateway, the upstream path all targets share, or past the split),
+  an **incidents** list, and a live mtr-style **trace**. Keys: `1`-`5` range,
+  arrows change target, `l` loss/latency, drag to zoom, click to pick a time.
+- **Per target** (`/target/{id}`): a larger hop x time heatmap. Routers that
+  only rate-limit their ICMP (Internet Control Message Protocol) replies are
+  hatched, so they are not blamed. Click any column for an mtr-style table.
 
 One binary, one SQLite file, no root, no capabilities, no external services.
 

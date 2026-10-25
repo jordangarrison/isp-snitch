@@ -43,6 +43,50 @@ the service was not running. Lost probes are not gaps.
 
 `200 ok` as plain text. Not logged.
 
+## `GET /api/status`
+
+Not range-based.
+
+```json
+{"version": "0.1.0", "interface": "enp5s0", "now": 1792937751, "latest_minute": 1792937640}
+```
+
+`interface` is `null` when the config sets none. `latest_minute` is the start
+of the newest stored minute (`null` with no data). The UI calls data stale
+when `now - (latest_minute + 60)` passes 150 s.
+
+## `GET /api/where`
+
+Where loss starts, and how often it happens, across all targets.
+
+```json
+{"from": 1792851351, "to": 1792937751, "step": 300,
+ "split_ttl": 6, "loss_pct": 1.22, "targets_total": 3,
+ "segments": [
+   {"name": "gateway", "first_ttl": 1, "last_ttl": 1, "loss_pct": 0.76, "share_pct": 62.3},
+   {"name": "upstream", "first_ttl": 2, "last_ttl": 6, "loss_pct": 0.31, "share_pct": 25.4},
+   {"name": "past_split", "first_ttl": 7, "last_ttl": null, "loss_pct": 0.15, "share_pct": 12.3}
+ ],
+ "hops": [{"ttl": 1, "addr": "192.168.1.1", "loss_pct": 0.76, "share_pct": 62.3}],
+ "incidents": [
+   {"start": 1792930800, "end": 1792931400, "peak_loss_pct": 8.3, "targets_hit": 3,
+    "origin_ttl": 1, "origin_addr": "192.168.1.1", "segment": "gateway"}
+ ]}
+```
+
+- Each hop's **added loss** in a bucket is its `eff_loss_pct` minus the
+  previous hop's. Per target, added loss is averaged over buckets weighted by
+  probes sent; then targets are averaged with equal weight. `loss_pct` at the
+  top is the sum over hops, the mean target loss.
+- `split_ttl`: the last TTL at which every target's most common responder is
+  the same address. `null` with fewer than 2 targets with data; then
+  `upstream` is open-ended and `past_split` is empty (`first_ttl` `null`).
+- `hops[].addr` is set only when every target has the same responder there.
+- `share_pct` is that part of all loss (`null` when there is no loss).
+- An incident is a run of consecutive buckets in which at least one target
+  lost 1% or more. `origin_ttl` is the hop with the most added loss in the
+  run. Newest first, at most 200.
+
 ## `GET /api/targets`
 
 ```json
@@ -90,7 +134,7 @@ An mtr-style table for one window (the UI sends one bucket's bounds).
 {"from": 1792886340, "to": 1792886400,
  "hops": [
    {"ttl": 4, "addr": "174.111.74.206", "sent": 60, "recv": 48,
-    "loss_pct": 20.0, "eff_loss_pct": 0.0, "rate_limited": true, "reached": false,
+    "loss_pct": 20.0, "eff_loss_pct": 0.0, "added_loss_pct": 0.0, "rate_limited": true, "reached": false,
     "avg_ms": 5.8, "min_ms": 4.5, "max_ms": 7.4, "addr_changed": false}
  ]}
 ```

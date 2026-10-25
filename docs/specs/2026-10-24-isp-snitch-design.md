@@ -143,7 +143,8 @@ end to end. isp-snitch keeps mtr-style per-hop data over time and graphs it.
   `include_str!` / `include_bytes!`. No frontend build step and no Node.
 - uPlot (MIT) is vendored under `assets/vendor/` with its license, for line
   and bar charts. The heatmap is drawn on a plain `<canvas>`.
-- Pages:
+- Pages (superseded for `/` by ADR 0004: `/` is now a single-page btop-style
+  dashboard with loss, latency, hops, where, incidents and trace boxes):
   - `/`: overview. One strip per target: a loss bar plus a latency line on one
     time axis, and summary stats (loss %, avg and worst latency, number of
     minutes with loss). Range picker (6h, 24h, 7d, 30d, 90d). Drag to zoom.
@@ -160,7 +161,8 @@ end to end. isp-snitch keeps mtr-style per-hop data over time and graphs it.
   - `GET /api/targets/{id}/hops?from&to` gives a hop x bucket matrix.
   - `GET /api/targets/{id}/slice?from&to` gives the mtr table for one window.
   - `GET /healthz`.
-- Theme follows the system light or dark preference.
+- Theme follows the system light or dark preference on `/target/{id}`. The
+  `/` dashboard is dark only (ADR 0004).
 
 ### Config
 

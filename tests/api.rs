@@ -233,7 +233,8 @@ async fn ui_assets_served() {
         ("/", "text/html"),
         ("/target/1", "text/html"),
         ("/assets/app.css", "text/css"),
-        ("/assets/overview.js", "text/javascript"),
+        ("/assets/dash.js", "text/javascript"),
+        ("/assets/dash.css", "text/css"),
         ("/assets/target.js", "text/javascript"),
         ("/assets/vendor/uplot/uPlot.iife.min.js", "text/javascript"),
     ] {

@@ -1,0 +1,165 @@
+/* Dashboard: a dense, terminal-style single page (btop look). Dark only. */
+:root {
+  color-scheme: dark;
+  --bg: #0c0d0e;
+  --fg: #cccccc;
+  --title: #eeeeee;
+  --muted: #7c7c78;
+  --faint: #3a3a38;
+  --div: #30302f;
+  --hi: #e06c5f;
+  --ok: #4fbf7f;
+  --sel-bg: rgba(238, 238, 238, 0.07);
+  --c-loss: #805252;
+  --c-lat: #5c588d;
+  --c-hops: #556d59;
+  --c-where: #6c6c4b;
+  --c-inc: #8a6a45;
+  --c-trace: #4b6c6c;
+  /* Read by common.js and dash.js. Loss: (0,1] (1,3] (3,10] (10,30] (30,100) 100 */
+  --cell-zero: #23272a;
+  --hatch-a: #4a4a46;
+  --hatch-b: #23272a;
+  --loss-1: #4a2220; --loss-2: #7a2d28; --loss-3: #a83a31;
+  --loss-4: #d34b3f; --loss-5: #ec7366; --loss-6: #f7a59b;
+  /* Latency (ms): <10 <20 <40 <80 <150 >=150 */
+  --lat-1: #0d366b; --lat-2: #184f95; --lat-3: #256abf;
+  --lat-4: #3987e5; --lat-5: #6da7ec; --lat-6: #b7d3f6;
+  --mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", "Fira Code", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 12px/1.4 var(--mono); font-variant-numeric: tabular-nums;
+  display: flex; flex-direction: column;
+}
+a { color: var(--fg); text-decoration: none; }
+a:hover { color: var(--title); text-decoration: underline; }
+.dim { color: var(--muted); }
+.spacer { flex: 1; }
+
+header.bar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 6px 16px; border-bottom: 1px solid var(--div);
+}
+.brand { color: var(--title); font-weight: 700; letter-spacing: 0.02em; }
+.chip { color: var(--title); border: 1px solid var(--div); border-radius: 3px; padding: 0 6px; }
+.chip:empty { display: none; }
+.health::before { content: "\25CF  "; }
+.health.live { color: var(--ok); }
+.health.stale, .health.error { color: var(--hi); }
+.health.paused { color: var(--muted); }
+.clock { color: var(--title); }
+
+.ranges, .tabs { display: flex; gap: 2px; flex-wrap: wrap; }
+.ranges button, .tabs button {
+  font: inherit; color: var(--muted); background: none; border: 0;
+  padding: 1px 6px; border-radius: 3px; cursor: pointer;
+}
+.ranges button sup { color: var(--hi); font-size: 9px; margin-right: 1px; }
+.ranges button:hover, .tabs button:hover { color: var(--title); }
+.ranges button[aria-pressed="true"], .tabs button[aria-pressed="true"] {
+  color: var(--title); background: var(--sel-bg); box-shadow: inset 0 -1px 0 var(--title);
+}
+
+main.grid {
+  flex: 1; min-height: 0;
+  display: grid; gap: 16px 10px; padding: 16px 12px 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 32%);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-areas: "loss where" "lat where" "hops inc" "hops trace";
+}
+.b-loss { grid-area: loss; --box: var(--c-loss); }
+.b-lat { grid-area: lat; --box: var(--c-lat); }
+.b-hops { grid-area: hops; --box: var(--c-hops); }
+.b-where { grid-area: where; --box: var(--c-where); }
+.b-inc { grid-area: inc; --box: var(--c-inc); }
+.b-trace { grid-area: trace; --box: var(--c-trace); max-height: 46vh; }
+
+.box {
+  position: relative; min-width: 0; min-height: 0;
+  border: 1px solid var(--box); border-radius: 6px;
+  padding: 12px 10px 8px; display: flex; flex-direction: column;
+}
+.box > h2 {
+  position: absolute; top: -0.75em; left: 10px; margin: 0;
+  font: inherit; font-weight: 700; color: var(--title);
+  background: var(--bg); padding: 0 2px; white-space: nowrap; max-width: calc(100% - 20px);
+  overflow: hidden; text-overflow: ellipsis;
+}
+.box > h2::before { content: "\2524"; color: var(--box); margin-right: 2px; font-weight: 400; }
+.box > h2::after { content: "\251C"; color: var(--box); margin-left: 2px; font-weight: 400; }
+.box > h2 .sub { color: var(--muted); font-weight: 400; margin-left: 8px; }
+.box-tools { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+.scroll { overflow: auto; min-height: 0; flex: 1; }
+
+/* Every time panel reserves the same scrollbar gutter, so their columns line up. */
+.plot { position: relative; width: 100%; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; scrollbar-width: thin; }
+.b-hops .plot { flex: 1; min-height: 0; }
+.plot canvas { display: block; width: 100%; cursor: crosshair; }
+.xhair, .band, .drag {
+  position: absolute; top: 0; pointer-events: none; display: none;
+}
+.xhair { width: 1px; background: rgba(238, 238, 238, 0.45); }
+.band { background: rgba(238, 238, 238, 0.09); border-left: 1px solid var(--muted); border-right: 1px solid var(--muted); }
+.drag { background: rgba(57, 135, 229, 0.18); }
+
+.legend { display: flex; gap: 10px; flex-wrap: wrap; color: var(--muted); margin-top: 6px; }
+.sw { display: inline-block; width: 10px; height: 8px; margin-right: 4px; vertical-align: 0; }
+.sw.hatch { background: repeating-linear-gradient(45deg, var(--hatch-a) 0 2px, var(--hatch-b) 2px 4px); }
+
+/* where */
+.verdict { color: var(--title); margin: 0 0 8px; }
+.verdict b { color: var(--hi); font-weight: 700; }
+.verdict.ok b { color: var(--ok); }
+.rows { display: grid; gap: 1px 8px; align-items: center; }
+.seg-rows { grid-template-columns: max-content max-content minmax(60px, 1fr) 4.5em 5em; margin-bottom: 10px; }
+.hop-rows { grid-template-columns: 2em minmax(0, max-content) minmax(40px, 1fr) 4.5em; }
+.rows .n { text-align: right; }
+.rows .addr { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meter { display: flex; gap: 1px; height: 9px; }
+.meter i { flex: 1; background: var(--faint); }
+.meter i.on { background: var(--box); filter: brightness(1.6); }
+.rule { color: var(--muted); margin: 4px 0; border-top: 1px solid var(--div); padding-top: 4px; }
+
+/* tables */
+table.t { width: 100%; border-collapse: collapse; }
+table.t th, table.t td { padding: 1px 6px; text-align: right; white-space: nowrap; }
+table.t th { color: var(--muted); font-weight: 400; position: sticky; top: 0; background: var(--bg); }
+table.t .l { text-align: left; }
+table.t tbody tr { cursor: default; }
+table.t tbody tr.click { cursor: pointer; }
+table.t tbody tr.click:hover, table.t tbody tr.sel { background: var(--sel-bg); color: var(--title); }
+table.t td.addr { max-width: 15em; overflow: hidden; text-overflow: ellipsis; }
+td .sw { margin-right: 6px; }
+.tag { color: var(--muted); margin-left: 4px; }
+.target-row td { color: var(--title); }
+.empty { color: var(--muted); padding: 10px 0; }
+.error { color: var(--hi); }
+
+footer.keys {
+  display: flex; gap: 18px; flex-wrap: wrap; padding: 4px 16px 6px; color: var(--muted);
+  border-top: 1px solid var(--div);
+}
+footer.keys b { color: var(--hi); font-weight: 400; }
+
+.tooltip {
+  position: fixed; pointer-events: none; z-index: 10; display: none;
+  background: #151718; color: var(--fg); border: 1px solid var(--div); border-radius: 4px;
+  padding: 4px 7px; white-space: nowrap; font: inherit;
+}
+.tooltip .t { color: var(--muted); }
+
+@media (max-width: 1000px) {
+  body { height: auto; }
+  main.grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas: "loss" "where" "lat" "hops" "trace" "inc";
+    padding: 16px 16px 8px;
+  }
+  .b-hops .plot { overflow: visible; }
+  .b-inc .scroll { max-height: 50vh; }
+}

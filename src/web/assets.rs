@@ -20,9 +20,14 @@ const FILES: &[(&str, &str, &[u8])] = &[
         include_bytes!("../../assets/common.js"),
     ),
     (
-        "overview.js",
+        "dash.css",
+        "text/css; charset=utf-8",
+        include_bytes!("../../assets/dash.css"),
+    ),
+    (
+        "dash.js",
         "text/javascript; charset=utf-8",
-        include_bytes!("../../assets/overview.js"),
+        include_bytes!("../../assets/dash.js"),
     ),
     (
         "target.js",

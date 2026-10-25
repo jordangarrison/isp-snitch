@@ -31,7 +31,7 @@ devbox run check   # cargo fmt --check && clippy -D warnings && cargo test
 | Probing, sockets, tracer | `devbox run trace -- --interface enp5s0 --rounds 5 1.1.1.1` prints an mtr table with the target reached |
 | Storage, flush, service | `devbox run dev`, wait 2 minutes, then `sqlite3 data/isp-snitch.db 'select count(*) from hop_minute'` > 0 and `probe_flush` events in stdout |
 | API | `curl -s localhost:9180/api/targets` while `devbox run dev` runs |
-| UI | open `http://localhost:9180/`, or take a headless screenshot: `chromium --headless=new --screenshot=out.png --window-size=1280,1100 --virtual-time-budget=4000 'http://localhost:9180/target/1#r=6h'` |
+| UI | open `http://localhost:9180/`, or take headless screenshots of the dashboard at desktop and phone width and of a target page: `chromium --headless=new --screenshot=out.png --window-size=1600,1000 --virtual-time-budget=5000 'http://localhost:9180/#r=6h'` (then `--window-size=420,2400`, and `/target/1#r=6h`) |
 | Packaging | `nix --extra-experimental-features 'nix-command flakes' build .#default` and `.#docker` |
 | Deployed service (BigOne) | `devbox run deploy` (passwordless; see `docs/operations.md`), then `journalctl -u isp-snitch -n 20 -o cat` shows `startup` and a `probe_flush` within 70 s |
 
@@ -42,7 +42,8 @@ src/icmp/        ping-socket transport (Linux), packet parsing
 src/tracer/      round logic (pure), run loop, trace table
 src/aggregate.rs rounds -> per-minute hop rows
 src/store.rs     SQLite schema, upsert, rollup, retention, bucket queries
-src/analysis.rs  effective loss, rate-limit flag, step ladder
+src/analysis.rs  effective loss, added loss, rate-limit flag, step ladder
+src/blame.rs     where loss starts (gateway/upstream/past split), incidents
 src/web/         axum API, embedded UI, HTTP wide events
 src/service.rs   wiring for `run`
 src/wide.rs      wide-event JSON logger

@@ -75,15 +75,31 @@ bucket:
   loss carries through to the target. Loss at one hop only is ICMP rate
   limiting on that router;
 - **rate_limited** = raw minus effective loss is at least 5 points, with at
-  least 10 probes.
+  least 10 probes;
+- **added loss** = effective loss minus the previous hop's: the loss that
+  starts at this hop.
+
+`src/blame.rs` (pure, for `GET /api/where`) takes every target's analyzed
+buckets and reports where loss starts: **gateway** (hop 1), **upstream**
+(hop 2 up to the last hop all targets share, the split) and **past split**,
+plus incidents (runs of buckets where a target lost 1% or more). See
+ADR 0004.
 
 ## UI
 
 Plain HTML, CSS and JavaScript in `assets/`, compiled into the binary with
-`include_bytes!`. There is no build step. uPlot draws the line and bar
-charts. A `<canvas>` draws the hop x time heatmap. The range lives in the URL
-hash (`#r=24h`, or `#from=..&to=..`, plus `&at=..` for a selected bucket), so
-every view can be shared as a link. See ADR 0003.
+`include_bytes!`. There is no build step. See ADR 0003.
+
+- `/` (`index.html`, `dash.js`, `dash.css`): the single-page dashboard
+  (ADR 0004). Canvas dot-matrix graphs and heatmap, one shared x layout for
+  the time panels. It reloads at minute + 12 s while the range is relative.
+  Hash state: `r` or `from`/`to`, `t` (target id), `m=lat`, and `at` plus
+  `span` for a picked window.
+- `/target/{id}` (`target.html`, `target.js`, `app.css`): the detail page.
+  uPlot draws the loss bars and a `<canvas>` the heatmap. Hash state: `r` or
+  `from`/`to`, plus `at` for a selected bucket.
+
+Both share `common.js` (escaping, range state, formatting, tooltip).
 
 ## Logging
 
