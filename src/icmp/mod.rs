@@ -1,6 +1,7 @@
 //! ICMP probing: the transport seam between the tracer and the network.
 
 pub mod packet;
+pub mod socket;
 
 use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
