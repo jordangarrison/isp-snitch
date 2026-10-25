@@ -91,6 +91,17 @@ pub struct HopBucket {
     pub reached: bool,
 }
 
+/// The target's own probes for one bucket: per stored row-time (minute or
+/// hour), the lowest TTL the target answered, summed over the bucket.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TargetBucket {
+    pub ts: i64,
+    pub sent: u32,
+    pub recv: u32,
+    pub rtt_sum_us: u64,
+    pub rtt_max_us: Option<u32>,
+}
+
 pub struct Store {
     conn: Mutex<Connection>,
 }
@@ -254,6 +265,52 @@ impl Store {
             [now - hour_days as i64 * 86_400],
         )?;
         Ok((m, h))
+    }
+
+    /// Target loss and latency per `step`-second bucket over `[from, to)`.
+    /// Each row-time uses its own lowest reached TTL; with no reply at all,
+    /// the TTL-1 count (one per round) is the number of lost target probes.
+    pub fn target_buckets(
+        &self,
+        table: Table,
+        target_id: i64,
+        from: i64,
+        to: i64,
+        step: i64,
+    ) -> Result<Vec<TargetBucket>> {
+        let c = self.conn();
+        let sql = format!(
+            "WITH m AS MATERIALIZED (
+                SELECT ts, ttl, sent, recv, rtt_sum_us, rtt_max_us, reached
+                FROM ({src}) WHERE ts >= ?2 AND ts < ?3
+             ), d AS MATERIALIZED (
+                SELECT ts, min(ttl) AS dttl FROM m WHERE reached = 1 GROUP BY ts
+             ), per AS (
+                SELECT t1.ts,
+                       coalesce(td.sent, t1.sent) AS sent,
+                       coalesce(td.recv, 0) AS recv,
+                       coalesce(td.rtt_sum_us, 0) AS rs,
+                       td.rtt_max_us AS mx
+                FROM m t1
+                LEFT JOIN d ON d.ts = t1.ts
+                LEFT JOIN m td ON td.ts = t1.ts AND td.ttl = d.dttl
+                WHERE t1.ttl = 1
+             )
+             SELECT (ts / ?4) * ?4 AS b, sum(sent), sum(recv), sum(rs), max(mx)
+             FROM per GROUP BY b ORDER BY b",
+            src = source_sql(table)
+        );
+        let mut st = c.prepare_cached(&sql)?;
+        let rows = st.query_map(params![target_id, from, to, step], |r| {
+            Ok(TargetBucket {
+                ts: r.get(0)?,
+                sent: r.get(1)?,
+                recv: r.get(2)?,
+                rtt_sum_us: r.get::<_, i64>(3)? as u64,
+                rtt_max_us: r.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     /// Hop stats grouped into `step`-second buckets over `[from, to)`,
@@ -493,5 +550,39 @@ mod tests {
         let b = s.hop_buckets(Table::Hour, id, 0, 7200, 3600).unwrap();
         let got: Vec<(i64, u32)> = b.iter().map(|x| (x.ts, x.sent)).collect();
         assert_eq!(got, vec![(0, 600), (3600, 300)]);
+    }
+
+    fn reached(mut r: HopMinute) -> HopMinute {
+        r.reached = true;
+        r
+    }
+
+    #[test]
+    fn target_buckets_use_lowest_reached_ttl_per_minute() {
+        let (s, id) = store_with_target();
+        s.insert_minutes(&[
+            row(id, 0, 1, 60, 60),
+            row(id, 0, 2, 60, 42),
+            reached(row(id, 0, 3, 60, 57)),
+            // Next minute the path is one hop shorter.
+            row(id, 60, 1, 60, 60),
+            reached(row(id, 60, 2, 60, 60)),
+        ])
+        .unwrap();
+        let t = s.target_buckets(Table::Minute, id, 0, 120, 120).unwrap();
+        assert_eq!(t.len(), 1);
+        assert_eq!((t[0].ts, t[0].sent, t[0].recv), (0, 120, 117));
+        assert_eq!(t[0].rtt_sum_us, 117_000);
+        assert_eq!(t[0].rtt_max_us, Some(1100));
+    }
+
+    #[test]
+    fn target_buckets_without_reply_are_total_loss() {
+        let (s, id) = store_with_target();
+        s.insert_minutes(&[row(id, 0, 1, 60, 60), row(id, 0, 2, 60, 0)])
+            .unwrap();
+        let t = s.target_buckets(Table::Minute, id, 0, 60, 60).unwrap();
+        assert_eq!((t[0].sent, t[0].recv), (60, 0));
+        assert_eq!(t[0].rtt_max_us, None);
     }
 }

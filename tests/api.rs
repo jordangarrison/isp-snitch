@@ -251,3 +251,34 @@ async fn ui_assets_served() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
+
+/// Target normally at TTL 3; for one minute the path is one hop shorter.
+/// Hop 2 rate-limits (30% raw loss) the whole time. The range summary must
+/// not report hop 2's loss as target loss.
+#[tokio::test]
+async fn path_change_does_not_blame_rate_limited_router() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let id = store
+        .ensure_target("CF", "1.1.1.1".parse().unwrap())
+        .unwrap();
+    let end = now() / 60 * 60;
+    let start = end - 3600;
+    let mut rows = Vec::new();
+    for m in 0..60 {
+        let ts = start + m * 60;
+        rows.push(row(id, ts, 1, 60, 60, false));
+        if m == 30 {
+            rows.push(row(id, ts, 2, 60, 60, true));
+        } else {
+            rows.push(row(id, ts, 2, 60, 42, false));
+            rows.push(row(id, ts, 3, 60, 60, true));
+        }
+    }
+    store.insert_minutes(&rows).unwrap();
+    let state = AppState::new(store.clone(), store.targets().unwrap(), 90);
+    let (st, v) = get(&state, &format!("/api/targets?from={start}&to={end}")).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    let loss = v["targets"][0]["loss_pct"].as_f64().unwrap();
+    assert!(loss < 0.01, "summary blamed the router: {loss}");
+    assert_eq!(v["targets"][0]["lossy_buckets"], 0);
+}

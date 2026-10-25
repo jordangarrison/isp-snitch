@@ -1,7 +1,7 @@
 //! Turns stored hop buckets into what the UI shows: loss, effective loss,
 //! rate-limit flags, and the target's own loss and latency.
 
-pub use crate::store::{HopBucket, Table};
+pub use crate::store::{HopBucket, Table, TargetBucket};
 use serde::Serialize;
 
 pub const STEPS: [i64; 8] = [60, 300, 900, 1800, 3600, 10_800, 21_600, 86_400];
@@ -134,22 +134,35 @@ pub struct TargetPoint {
 }
 
 /// The target's loss and latency for one bucket. `None` = no probes (a gap).
-pub fn target_point(stats: &[HopStat]) -> Option<TargetPoint> {
-    if stats.iter().all(|s| s.sent == 0) {
+pub fn target_point(b: &TargetBucket) -> Option<TargetPoint> {
+    if b.sent == 0 {
         return None;
     }
-    match stats.last() {
-        Some(last) if last.reached => Some(TargetPoint {
-            loss_pct: last.loss_pct,
-            avg_ms: last.avg_ms,
-            max_ms: last.max_ms,
-        }),
-        _ => Some(TargetPoint {
-            loss_pct: 100.0,
-            avg_ms: None,
-            max_ms: None,
-        }),
-    }
+    Some(TargetPoint {
+        loss_pct: 100.0 * b.sent.saturating_sub(b.recv) as f64 / b.sent as f64,
+        avg_ms: (b.recv > 0).then(|| b.rtt_sum_us as f64 / b.recv as f64 / 1000.0),
+        max_ms: b.rtt_max_us.map(|v| v as f64 / 1000.0),
+    })
+}
+
+/// Sums target buckets into one, for a whole-range summary.
+pub fn sum_targets(buckets: &[TargetBucket]) -> TargetBucket {
+    buckets.iter().fold(
+        TargetBucket {
+            ts: buckets.first().map_or(0, |b| b.ts),
+            sent: 0,
+            recv: 0,
+            rtt_sum_us: 0,
+            rtt_max_us: None,
+        },
+        |mut acc, b| {
+            acc.sent += b.sent;
+            acc.recv += b.recv;
+            acc.rtt_sum_us += b.rtt_sum_us;
+            acc.rtt_max_us = acc.rtt_max_us.max(b.rtt_max_us);
+            acc
+        },
+    )
 }
 
 #[cfg(test)]
@@ -247,10 +260,19 @@ mod tests {
         assert_eq!(s[0].addr.as_deref(), Some("10.0.0.1"));
     }
 
+    fn tb(sent: u32, recv: u32, max: Option<u32>) -> TargetBucket {
+        TargetBucket {
+            ts: 0,
+            sent,
+            recv,
+            rtt_sum_us: recv as u64 * 10_000,
+            rtt_max_us: max,
+        }
+    }
+
     #[test]
-    fn target_point_uses_reached_hop() {
-        let s = analyze(&[b(1, 10, 10, false), b(2, 10, 9, true)]);
-        let p = target_point(&s).unwrap();
+    fn target_point_from_bucket() {
+        let p = target_point(&tb(10, 9, Some(20_000))).unwrap();
         assert!((p.loss_pct - 10.0).abs() < 1e-9);
         assert_eq!(p.avg_ms, Some(10.0));
         assert_eq!(p.max_ms, Some(20.0));
@@ -258,15 +280,20 @@ mod tests {
 
     #[test]
     fn nothing_reached_is_total_loss() {
-        let s = analyze(&[b(1, 10, 10, false), b(2, 10, 0, false)]);
-        let p = target_point(&s).unwrap();
+        let p = target_point(&tb(10, 0, None)).unwrap();
         assert_eq!(p.loss_pct, 100.0);
         assert_eq!(p.avg_ms, None);
     }
 
     #[test]
     fn empty_bucket_is_a_gap() {
-        assert_eq!(target_point(&analyze(&[])), None);
+        assert_eq!(target_point(&tb(0, 0, None)), None);
+    }
+
+    #[test]
+    fn sum_targets_adds_counts_and_keeps_worst() {
+        let t = sum_targets(&[tb(10, 9, Some(5)), tb(10, 10, Some(9)), tb(0, 0, None)]);
+        assert_eq!((t.sent, t.recv, t.rtt_max_us), (20, 19, Some(9)));
     }
 
     #[test]

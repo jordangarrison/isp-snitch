@@ -4,8 +4,8 @@ pub mod assets;
 pub mod log;
 
 use crate::analysis::{
-    HopBucket, HopStat, MAX_POINTS, Table, analyze, merge_by_ttl, pick_step, pick_table,
-    target_point,
+    HopBucket, HopStat, MAX_POINTS, Table, TargetBucket, analyze, merge_by_ttl, pick_step,
+    pick_table, sum_targets, target_point,
 };
 use crate::store::{Store, TargetRow};
 use axum::extract::{Path, Query, State};
@@ -133,31 +133,67 @@ fn find_target(state: &AppState, id: &str) -> Result<TargetRow, ApiError> {
         })
 }
 
-/// Rows for one target over a range, split into display buckets.
-struct Grid {
+/// Bucket layout for a range: step, table, and bucket start times.
+struct Layout {
     step: i64,
+    table: Table,
+    start: i64,
     ts: Vec<i64>,
-    buckets: Vec<Vec<HopBucket>>,
 }
 
-fn grid(state: &AppState, target_id: i64, from: i64, to: i64) -> anyhow::Result<Grid> {
+fn layout(state: &AppState, from: i64, to: i64) -> Layout {
     let step = pick_step(from, to, MAX_POINTS);
     let table = pick_table(from, now(), step, state.inner.minute_days);
     let start = from.div_euclid(step) * step;
     let n = ((to - start) + step - 1) / step;
-    let ts: Vec<i64> = (0..n).map(|i| start + i * step).collect();
-    let mut buckets = vec![Vec::new(); n as usize];
+    Layout {
+        step,
+        table,
+        start,
+        ts: (0..n).map(|i| start + i * step).collect(),
+    }
+}
+
+/// Hop rows for one target over a range, split into display buckets.
+fn hop_grid(
+    state: &AppState,
+    l: &Layout,
+    target_id: i64,
+    to: i64,
+) -> anyhow::Result<Vec<Vec<HopBucket>>> {
+    let mut buckets = vec![Vec::new(); l.ts.len()];
     for row in state
         .inner
         .store
-        .hop_buckets(table, target_id, start, to, step)?
+        .hop_buckets(l.table, target_id, l.start, to, l.step)?
     {
-        let i = ((row.ts - start) / step) as usize;
+        let i = ((row.ts - l.start) / l.step) as usize;
         if let Some(b) = buckets.get_mut(i) {
             b.push(row);
         }
     }
-    Ok(Grid { step, ts, buckets })
+    Ok(buckets)
+}
+
+/// The target's own stats per display bucket (`None` = gap).
+fn target_grid(
+    state: &AppState,
+    l: &Layout,
+    target_id: i64,
+    to: i64,
+) -> anyhow::Result<Vec<Option<TargetBucket>>> {
+    let mut out = vec![None; l.ts.len()];
+    for b in state
+        .inner
+        .store
+        .target_buckets(l.table, target_id, l.start, to, l.step)?
+    {
+        let i = ((b.ts - l.start) / l.step) as usize;
+        if let Some(slot) = out.get_mut(i) {
+            *slot = Some(b);
+        }
+    }
+    Ok(out)
 }
 
 async fn blocking<T: Send + 'static>(
@@ -194,15 +230,17 @@ async fn targets(State(state): State<AppState>, Query(q): Params) -> ApiResult<T
     let out = blocking(move || {
         let mut targets = Vec::new();
         for t in &st.inner.targets {
-            let g = grid(&st, t.id, from, to)?;
-            let lossy_buckets = g
-                .buckets
+            let l = layout(&st, from, to);
+            let tg: Vec<TargetBucket> = target_grid(&st, &l, t.id, to)?
+                .into_iter()
+                .flatten()
+                .collect();
+            let lossy_buckets = tg
                 .iter()
-                .filter_map(|b| target_point(&analyze(b)))
+                .filter_map(target_point)
                 .filter(|p| p.loss_pct > 0.0)
                 .count();
-            let all: Vec<HopBucket> = g.buckets.into_iter().flatten().collect();
-            let point = target_point(&analyze(&merge_by_ttl(&all)));
+            let point = target_point(&sum_targets(&tg));
             targets.push(TargetSummary {
                 id: t.id,
                 name: t.name.clone(),
@@ -241,15 +279,14 @@ async fn series(
     let target = find_target(&state, &id)?;
     let (from, to) = range(&q, now())?;
     let out = blocking(move || {
-        let g = grid(&state, target.id, from, to)?;
-        let points: Vec<_> = g
-            .buckets
+        let l = layout(&state, from, to);
+        let points: Vec<_> = target_grid(&state, &l, target.id, to)?
             .iter()
-            .map(|b| target_point(&analyze(b)))
+            .map(|b| b.as_ref().and_then(target_point))
             .collect();
         Ok(SeriesResponse {
-            step: g.step,
-            ts: g.ts,
+            step: l.step,
+            ts: l.ts,
             loss_pct: points
                 .iter()
                 .map(|p| p.as_ref().map(|p| p.loss_pct))
@@ -293,9 +330,8 @@ async fn hops(
     let target = find_target(&state, &id)?;
     let (from, to) = range(&q, now())?;
     let out = blocking(move || {
-        let g = grid(&state, target.id, from, to)?;
-        let stats: Vec<BTreeMap<u8, HopStat>> = g
-            .buckets
+        let l = layout(&state, from, to);
+        let stats: Vec<BTreeMap<u8, HopStat>> = hop_grid(&state, &l, target.id, to)?
             .iter()
             .map(|b| analyze(b).into_iter().map(|s| (s.ttl, s)).collect())
             .collect();
@@ -327,8 +363,8 @@ async fn hops(
             })
             .collect();
         Ok(HopsResponse {
-            step: g.step,
-            ts: g.ts,
+            step: l.step,
+            ts: l.ts,
             hops,
         })
     })

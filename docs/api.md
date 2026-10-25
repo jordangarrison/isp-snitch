@@ -32,8 +32,10 @@ the service was not running. Lost probes are not gaps.
   Loss at one hop only is that router rate-limiting its ICMP replies.
 - `rate_limited`: `loss_pct - eff_loss_pct >= 5` and the hop got at least 10
   probes.
-- Target loss: `loss_pct` of the first hop where the target answered. If the
-  target never answered in the bucket, it is 100.
+- Target loss: for each stored minute (or hour), the loss at the lowest TTL
+  the target answered in that minute; with no answer, every round counts as
+  lost. These are summed over the bucket, so a short path change cannot turn
+  a rate-limiting router's loss into target loss.
 
 ## `GET /healthz`
 
