@@ -115,11 +115,10 @@ pub async fn run_until(
     ));
     let maintenance = tokio::spawn(maintenance_loop(store.clone(), cfg.retention.clone()));
 
-    let app = web::router(AppState::new(
-        store.clone(),
-        targets,
-        cfg.retention.minute_days,
-    ))
+    let app = web::router(
+        AppState::new(store.clone(), targets, cfg.retention.minute_days)
+            .with_interface(cfg.interface.clone()),
+    )
     .layer(axum::middleware::from_fn(web::log::http_wide_event));
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown)

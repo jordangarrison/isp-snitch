@@ -7,6 +7,7 @@ use crate::analysis::{
     HopBucket, HopStat, Table, TargetBucket, analyze, merge_by_ttl, pick_step_table, pick_table,
     sum_targets, target_point,
 };
+use crate::blame::{GridBucket, TargetGrid, WhereReport};
 use crate::store::{Store, TargetRow};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -31,6 +32,7 @@ struct Inner {
     store: Arc<Store>,
     targets: Vec<TargetRow>,
     minute_days: u32,
+    interface: Option<String>,
 }
 
 impl AppState {
@@ -40,6 +42,20 @@ impl AppState {
                 store,
                 targets,
                 minute_days,
+                interface: None,
+            }),
+        }
+    }
+
+    /// The probe interface, shown by `/api/status`.
+    pub fn with_interface(self, interface: Option<String>) -> Self {
+        let i = &self.inner;
+        Self {
+            inner: Arc::new(Inner {
+                store: i.store.clone(),
+                targets: i.targets.clone(),
+                minute_days: i.minute_days,
+                interface,
             }),
         }
     }
@@ -51,6 +67,8 @@ pub fn router(state: AppState) -> Router {
         .route("/target/{id}", get(assets::target_page))
         .route("/assets/{*path}", get(assets::asset))
         .route("/healthz", get(|| async { "ok" }))
+        .route("/api/status", get(status))
+        .route("/api/where", get(where_report))
         .route("/api/targets", get(targets))
         .route("/api/targets/{id}/series", get(series))
         .route("/api/targets/{id}/hops", get(hops))
@@ -428,6 +446,66 @@ async fn slice(
             })
             .collect();
         Ok(SliceResponse { from, to, hops })
+    })
+    .await?;
+    Ok(Json(out))
+}
+
+#[derive(Serialize)]
+struct StatusResponse {
+    version: &'static str,
+    interface: Option<String>,
+    now: i64,
+    latest_minute: Option<i64>,
+}
+
+async fn status(State(state): State<AppState>) -> ApiResult<StatusResponse> {
+    let st = state.clone();
+    let latest_minute = blocking(move || st.inner.store.latest_minute()).await?;
+    Ok(Json(StatusResponse {
+        version: env!("CARGO_PKG_VERSION"),
+        interface: state.inner.interface.clone(),
+        now: now(),
+        latest_minute,
+    }))
+}
+
+#[derive(Serialize)]
+struct WhereResponse {
+    from: i64,
+    to: i64,
+    step: i64,
+    #[serde(flatten)]
+    report: WhereReport,
+}
+
+async fn where_report(State(state): State<AppState>, Query(q): Params) -> ApiResult<WhereResponse> {
+    let (from, to) = range(&q, now())?;
+    let out = blocking(move || {
+        let l = layout(&state, from, to);
+        let mut grids = Vec::new();
+        for t in &state.inner.targets {
+            let hops = hop_grid(&state, &l, t.id, to)?;
+            let points = target_grid(&state, &l, t.id, to)?;
+            let buckets = hops
+                .iter()
+                .zip(points)
+                .map(|(rows, p)| GridBucket {
+                    target: p.as_ref().and_then(target_point),
+                    hops: analyze(rows),
+                })
+                .collect();
+            grids.push(TargetGrid {
+                target_id: t.id,
+                buckets,
+            });
+        }
+        Ok(WhereResponse {
+            from,
+            to,
+            step: l.step,
+            report: crate::blame::report(&l.ts, l.step, &grids),
+        })
     })
     .await?;
     Ok(Json(out))

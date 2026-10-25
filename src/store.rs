@@ -169,6 +169,17 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// Start of the newest stored minute across all targets. One primary-key
+    /// seek per target, so it stays cheap on a large table.
+    pub fn latest_minute(&self) -> Result<Option<i64>> {
+        let c = self.conn();
+        Ok(c.query_row(
+            "SELECT MAX((SELECT MAX(ts) FROM hop_minute WHERE target_id = t.id)) FROM targets t",
+            [],
+            |r| r.get(0),
+        )?)
+    }
+
     /// Additive upsert: a late row for an existing minute adds to it.
     pub fn insert_minutes(&self, rows: &[HopMinute]) -> Result<()> {
         let mut c = self.conn();

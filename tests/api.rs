@@ -295,3 +295,52 @@ async fn absurd_range_is_400() {
         assert_eq!(st, StatusCode::BAD_REQUEST, "{q}: {v}");
     }
 }
+
+#[tokio::test]
+async fn where_reports_origin_and_incidents() {
+    let s = seed();
+    let (st, v) = get(
+        &s.state,
+        &format!("/api/where?from={}&to={}", s.start, s.end),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert_eq!(v["step"], 60);
+    assert_eq!(v["targets_total"], 1);
+    assert!(v["split_ttl"].is_null(), "one target has no split");
+    let loss = v["loss_pct"].as_f64().unwrap();
+    assert!((loss - 50.0 / 60.0).abs() < 1e-6, "{loss}");
+    let names: Vec<&str> = v["segments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["gateway", "upstream", "past_split"]);
+    let inc = v["incidents"].as_array().unwrap();
+    assert_eq!(inc.len(), 1, "{inc:?}");
+    assert_eq!(inc[0]["start"], s.lossy);
+    assert_eq!(inc[0]["end"], s.lossy + 60);
+    assert_eq!(inc[0]["peak_loss_pct"], 50.0);
+    assert_eq!(inc[0]["origin_ttl"], 2);
+    assert_eq!(inc[0]["segment"], "upstream");
+    let (st, _) = get(&s.state, "/api/where?from=10&to=5").await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn status_reports_interface_and_newest_data() {
+    let s = seed();
+    let state = s.state.with_interface(Some("enp5s0".into()));
+    let (st, v) = get(&state, "/api/status").await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert_eq!(v["interface"], "enp5s0");
+    assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(v["latest_minute"], s.end - 60);
+    assert!(v["now"].as_i64().unwrap() >= s.end);
+
+    let empty = AppState::new(Arc::new(Store::open_in_memory().unwrap()), vec![], 90);
+    let (_, v) = get(&empty, "/api/status").await;
+    assert!(v["latest_minute"].is_null());
+    assert!(v["interface"].is_null());
+}
