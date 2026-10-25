@@ -54,12 +54,18 @@ pub enum Table {
     Hour,
 }
 
-impl Table {
-    fn name(self) -> &'static str {
-        match self {
-            Table::Minute => "hop_minute",
-            Table::Hour => "hop_hour",
-        }
+/// Rows of one target (`?1`) for a bucket query. The hour table is topped up
+/// with minute rows newer than its last rolled-up hour, so recent data show
+/// on long ranges before the next rollup.
+fn source_sql(table: Table) -> String {
+    match table {
+        Table::Minute => "SELECT * FROM hop_minute WHERE target_id = ?1".to_string(),
+        Table::Hour => "SELECT * FROM hop_hour WHERE target_id = ?1
+               AND ts < (SELECT coalesce(max(ts) + 3600, 0) FROM hop_hour WHERE target_id = ?1)
+             UNION ALL
+             SELECT * FROM hop_minute WHERE target_id = ?1
+               AND ts >= (SELECT coalesce(max(ts) + 3600, 0) FROM hop_hour WHERE target_id = ?1)"
+            .to_string(),
     }
 }
 
@@ -265,7 +271,7 @@ impl Store {
             "WITH m AS MATERIALIZED (
                 SELECT (ts / ?4) * ?4 AS b, ts, ttl, sent, recv, rtt_sum_us, rtt_min_us,
                        rtt_max_us, addr, reached
-                FROM {t} WHERE target_id = ?1 AND ts >= ?2 AND ts < ?3
+                FROM ({src}) WHERE ts >= ?2 AND ts < ?3
              ), agg AS MATERIALIZED (
                 SELECT b, ttl, sum(sent) AS sent, sum(recv) AS recv, sum(rtt_sum_us) AS rs,
                        min(rtt_min_us) AS mn, max(rtt_max_us) AS mx, max(reached) AS r
@@ -279,7 +285,7 @@ impl Store {
              )
              SELECT agg.b, agg.ttl, sent, recv, rs, mn, mx, best.addr, r
              FROM agg LEFT JOIN best USING (b, ttl) ORDER BY agg.b, agg.ttl",
-            t = table.name()
+            src = source_sql(table)
         );
         let mut st = c.prepare_cached(&sql)?;
         let rows = st.query_map(params![target_id, from, to, step], |r| {
@@ -475,5 +481,17 @@ mod tests {
             "first rollup took {:?}",
             started.elapsed()
         );
+    }
+
+    #[test]
+    fn hour_queries_include_minutes_not_rolled_up_yet() {
+        let (s, id) = store_with_target();
+        let rows: Vec<HopMinute> = (0..90).map(|m| row(id, m * 60, 1, 10, 9)).collect();
+        s.insert_minutes(&rows).unwrap();
+        // Only hour 0 is complete and rolled up; minutes 60..89 are the current hour.
+        s.rollup_hours(3600 + 1800).unwrap();
+        let b = s.hop_buckets(Table::Hour, id, 0, 7200, 3600).unwrap();
+        let got: Vec<(i64, u32)> = b.iter().map(|x| (x.ts, x.sent)).collect();
+        assert_eq!(got, vec![(0, 600), (3600, 300)]);
     }
 }
