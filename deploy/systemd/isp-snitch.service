@@ -1,0 +1,39 @@
+[Unit]
+Description=isp-snitch per-hop packet-loss monitor
+Documentation=https://github.com/mago0/isp-snitch
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/isp-snitch run --config /etc/isp-snitch/config.toml
+Restart=always
+RestartSec=5
+
+# Ping sockets need no capabilities, only net.ipv4.ping_group_range covering
+# the service group (systemd's default range covers every group).
+DynamicUser=yes
+StateDirectory=isp-snitch
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target
