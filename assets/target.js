@@ -11,6 +11,7 @@ let lossPlot = null;
 let hops = null;
 let mode = "loss";
 let selected = null;
+let generation = 0;
 
 function rowHeight() { return innerWidth < 600 ? 16 : 20; }
 
@@ -137,7 +138,7 @@ function onHeatMove(ev) {
   const t = hops.ts[c.i];
   const loss = hop.loss_pct[c.i];
   const lines = [`<div class="t">${fmtTime(t)} (${fmtStep(hops.step)})</div>`,
-    `Hop ${hop.ttl} <b>${hop.addr || "???"}</b>`];
+    `Hop ${hop.ttl} <b>${esc(hop.addr || "???")}</b>`];
   if (loss == null) lines.push("no data");
   else {
     lines.push(`Effective loss <b>${fmtPct(hop.eff_loss_pct[c.i])}</b>`);
@@ -164,17 +165,17 @@ async function loadSlice(from, to) {
   try {
     s = await getJSON(`/api/targets/${targetId}/slice?from=${from}&to=${to}`);
   } catch (e) {
-    el.innerHTML = `<p class="empty error">${e.message}</p>`;
+    showMessage(el, e.message, true);
     return;
   }
   if (!s.hops.length) {
-    el.innerHTML = `<p class="empty">No data in this window.</p>`;
+    showMessage(el, "No data in this window.");
     return;
   }
   const rows = s.hops.map((h) => `
     <tr>
       <td>${h.ttl}</td>
-      <td>${h.addr || "???"}${h.addr_changed ? '<span class="tag">route changed</span>' : ""}${h.reached ? '<span class="tag">target</span>' : ""}</td>
+      <td>${esc(h.addr || "???")}${h.addr_changed ? '<span class="tag">route changed</span>' : ""}${h.reached ? '<span class="tag">target</span>' : ""}</td>
       <td>${fmtPct(h.eff_loss_pct)}</td>
       <td class="${h.rate_limited ? "rl" : ""}">${fmtPct(h.loss_pct)}${h.rate_limited ? '<span class="tag">rate-limited</span>' : ""}</td>
       <td>${h.sent}</td>
@@ -192,7 +193,7 @@ function drawLossChart(s) {
   if (lossPlot) lossPlot.destroy();
   lossPlot = null;
   if (s.loss_pct.every((v) => v == null)) {
-    el.innerHTML = `<p class="empty">No data in this range.</p>`;
+    showMessage(el, "No data in this range.");
     return;
   }
   el.innerHTML = "";
@@ -202,7 +203,7 @@ function drawLossChart(s) {
   lossPlot = new uPlot({
     width: chartWidth(el), height: 130, padding: [8, RIGHT_PAD, 0, 0],
     cursor: { drag: { x: true, y: false } },
-    scales: { x: { time: true }, y: { range: [0, max] } },
+    scales: { x: bucketScale(s.ts, s.step), y: { range: [0, max] } },
     axes: ax,
     series: [{}, {
       label: "Loss", fill: css("--series-loss"), stroke: css("--series-loss"),
@@ -225,13 +226,16 @@ async function render() {
   renderRangeButtons(document.getElementById("ranges"), render);
   document.getElementById("home").href = "/" + location.hash;
   const { from, to } = readRange();
+  const gen = ++generation;
   selected = null;
+  document.getElementById("page-error").replaceChildren();
   try {
     const [summary, series, h] = await Promise.all([
       getJSON(`/api/targets?from=${from}&to=${to}`),
       getJSON(`/api/targets/${targetId}/series?from=${from}&to=${to}`),
       getJSON(`/api/targets/${targetId}/hops?from=${from}&to=${to}`),
     ]);
+    if (gen !== generation) return; // a newer render started
     const t = summary.targets.find((x) => String(x.id) === targetId);
     if (t) {
       document.getElementById("crumb").textContent = `${t.name} (${t.addr})`;
@@ -242,7 +246,7 @@ async function render() {
     drawLossChart(series);
     drawLegend();
     drawHeat();
-    if (!h.hops.length) document.getElementById("legend").innerHTML = `<p class="empty">No hop data in this range.</p>`;
+    if (!h.hops.length) showMessage(document.getElementById("legend"), "No hop data in this range.");
     const at = readAt();
     const i = at == null ? -1 : h.ts.findIndex((t) => t <= at && at < t + h.step);
     if (i >= 0) {
@@ -251,7 +255,7 @@ async function render() {
       await loadSlice(h.ts[i], h.ts[i] + h.step);
     }
   } catch (e) {
-    document.querySelector("main").innerHTML = `<p class="empty error">Could not load target: ${e.message}</p>`;
+    if (gen === generation) showMessage(document.getElementById("page-error"), `Could not load target: ${e.message}`, true);
   }
 }
 

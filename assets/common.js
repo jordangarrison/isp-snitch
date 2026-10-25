@@ -6,6 +6,24 @@ const RANGES = { "6h": 6 * 3600, "24h": 86400, "7d": 7 * 86400, "30d": 30 * 8640
 
 function nowSec() { return Math.floor(Date.now() / 1000); }
 
+/** Escapes text for use inside innerHTML. Every server or config value goes through it. */
+function esc(v) {
+  return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+/** Replaces el's content with one message paragraph, set as text. */
+function showMessage(el, text, isError) {
+  const p = document.createElement("p");
+  p.className = isError ? "empty error" : "empty";
+  p.textContent = text;
+  el.replaceChildren(p);
+}
+
+/** x scale covering whole buckets, so bars line up with heatmap columns. */
+function bucketScale(ts, step) {
+  return { time: true, range: () => [ts[0], ts[ts.length - 1] + step] };
+}
+
 /** Current range from the hash: #r=24h or #from=..&to=.. */
 function readRange() {
   const p = new URLSearchParams(location.hash.slice(1));
