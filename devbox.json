@@ -1,0 +1,25 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.18.1/.schema/devbox.schema.json",
+  "packages": [
+    "rustc@latest",
+    "cargo@latest",
+    "clippy@latest",
+    "rustfmt@latest",
+    "rust-analyzer@latest",
+    "gcc@latest",
+    "sqlite@latest"
+  ],
+  "env": {
+    "ISP_SNITCH_ENV": "development"
+  },
+  "shell": {
+    "scripts": {
+      "check": "cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test",
+      "test": "cargo test",
+      "fmt": "cargo fmt",
+      "dev": "cargo run -- run --config deploy/config.dev.toml",
+      "trace": "cargo run -q -- trace \"$@\"",
+      "build": "cargo build --release"
+    }
+  }
+}
