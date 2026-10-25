@@ -47,8 +47,9 @@ a round completes:
   the old distance plus an echo further out is loss, not a longer path.
 
 If the socket cannot be opened (for example, the interface is gone), each
-round is recorded as one TTL-1 probe with a send error, and the socket is
-reopened every 5 s. An outage of the link shows as 100% loss, not as a gap.
+round is recorded as send errors at every TTL up to the known distance, and
+the socket is reopened every 5 s. An outage of the link shows as 100% loss
+on every hop, not as a gap.
 
 ## Storage
 

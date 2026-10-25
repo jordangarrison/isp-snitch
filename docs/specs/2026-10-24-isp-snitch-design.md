@@ -103,7 +103,10 @@ end to end. isp-snitch keeps mtr-style per-hop data over time and graphs it.
   longer path: the round is cut at `d_known` and the horizon stays.
   (Found in live data on 2026-10-24, during a real 33% loss event.)
 - A send error (interface down, no route) counts as a sent probe with no
-  answer, at TTL 1, and increments `send_errors`.
+  answer and increments `send_errors`. A round with no usable socket is
+  recorded at every TTL up to the known distance (TTL 1 if none is known), so
+  an outage shows as loss on every hop and at the target, not as rate
+  limiting at hop 1. Such rounds do not change the horizon.
 
 ### Storage (ADR 0002)
 

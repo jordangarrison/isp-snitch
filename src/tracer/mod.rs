@@ -138,25 +138,29 @@ impl TracerCore {
     }
 
     /// Records a round in which no probe could be sent (no usable socket):
-    /// one TTL-1 probe marked as a send error.
+    /// every TTL up to the known distance (or just TTL 1) as a send error, so
+    /// the outage counts as loss at each hop and at the target.
     pub fn begin_failed_round(&mut self, now: Instant, started_unix: i64) {
         let no = self.next_round_no;
         self.next_round_no += 1;
-        self.rounds.push_back(RoundState {
-            no,
-            started_unix,
-            slots: vec![Slot {
+        let slots = (1..=self.d_known.unwrap_or(1))
+            .map(|ttl| Slot {
                 seq: 0,
                 sent_at: now,
                 done: true,
                 outcome: ProbeOutcome {
-                    ttl: 1,
+                    ttl,
                     rtt: None,
                     responder: None,
                     reached: false,
                     send_error: true,
                 },
-            }],
+            })
+            .collect();
+        self.rounds.push_back(RoundState {
+            no,
+            started_unix,
+            slots,
         });
     }
 
@@ -227,7 +231,8 @@ impl TracerCore {
 
     fn finish(&mut self, round: RoundState) -> CompletedRound {
         let mut probes: Vec<ProbeOutcome> = round.slots.into_iter().map(|s| s.outcome).collect();
-        let failed_round = probes.len() == 1 && probes[0].send_error;
+        // Nothing left the host: says nothing about the path, keep the horizon.
+        let failed_round = probes.iter().all(|p| p.send_error);
         let mut d_round = probes.iter().filter(|p| p.reached).map(|p| p.ttl).min();
         // The target answers every TTL at or past its distance, so a reply
         // beyond the known distance means a longer path only if a router
@@ -531,5 +536,24 @@ mod tests {
         assert_eq!(ttls(&done[0]), vec![1, 2, 3, 4, 5]);
         assert!(done[0].probes[4].rtt.is_none(), "TTL 5 was lost");
         assert_eq!(core.horizon(), 5);
+    }
+
+    #[test]
+    fn failed_round_covers_known_distance() {
+        let t0 = Instant::now();
+        let mut core = TracerCore::new(1, 30, T);
+        let p = core.begin_round(t0, 0);
+        answer_all(&mut core, &p, 5, t0 + Duration::from_millis(5));
+        core.poll_completed(t0 + Duration::from_millis(10));
+        core.begin_failed_round(t0 + Duration::from_secs(1), 1);
+        let done = core.poll_completed(t0 + Duration::from_secs(1));
+        assert_eq!(ttls(&done[0]), vec![1, 2, 3, 4, 5]);
+        assert!(
+            done[0]
+                .probes
+                .iter()
+                .all(|p| p.send_error && p.rtt.is_none())
+        );
+        assert_eq!(core.horizon(), 5, "an outage does not change the distance");
     }
 }
