@@ -4,8 +4,8 @@ pub mod assets;
 pub mod log;
 
 use crate::analysis::{
-    HopBucket, HopStat, MAX_POINTS, Table, TargetBucket, analyze, merge_by_ttl, pick_step,
-    pick_table, sum_targets, target_point,
+    HopBucket, HopStat, Table, TargetBucket, analyze, merge_by_ttl, pick_step_table, pick_table,
+    sum_targets, target_point,
 };
 use crate::store::{Store, TargetRow};
 use axum::extract::{Path, Query, State};
@@ -142,8 +142,7 @@ struct Layout {
 }
 
 fn layout(state: &AppState, from: i64, to: i64) -> Layout {
-    let step = pick_step(from, to, MAX_POINTS);
-    let table = pick_table(from, now(), step, state.inner.minute_days);
+    let (step, table) = pick_step_table(from, to, now(), state.inner.minute_days);
     let start = from.div_euclid(step) * step;
     let n = ((to - start) + step - 1) / step;
     Layout {
@@ -254,7 +253,7 @@ async fn targets(State(state): State<AppState>, Query(q): Params) -> ApiResult<T
         Ok(TargetsResponse {
             from,
             to,
-            step: pick_step(from, to, MAX_POINTS),
+            step: pick_step_table(from, to, now(), st.inner.minute_days).0,
             targets,
         })
     })

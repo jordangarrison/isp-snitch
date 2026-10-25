@@ -27,6 +27,16 @@ pub fn pick_table(from: i64, now: i64, step: i64, minute_days: u32) -> Table {
     }
 }
 
+/// Step and table for a range. Hourly rows never go into buckets shorter
+/// than an hour, which would show 11 of 12 buckets as gaps.
+pub fn pick_step_table(from: i64, to: i64, now: i64, minute_days: u32) -> (i64, Table) {
+    let step = pick_step(from, to, MAX_POINTS);
+    match pick_table(from, now, step, minute_days) {
+        Table::Hour => (step.max(3600), Table::Hour),
+        Table::Minute => (step, Table::Minute),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct HopStat {
     pub ttl: u8,
@@ -316,5 +326,23 @@ mod tests {
             "addr of the bucket with most answers"
         );
         assert!(m[1].reached);
+    }
+
+    #[test]
+    fn old_short_range_uses_hourly_step() {
+        let now = 200 * 86_400;
+        let from = now - 120 * 86_400;
+        assert_eq!(
+            pick_step_table(from, from + 6 * 3600, now, 90),
+            (3600, Table::Hour)
+        );
+        assert_eq!(
+            pick_step_table(now - 6 * 3600, now, now, 90),
+            (60, Table::Minute)
+        );
+        assert_eq!(
+            pick_step_table(now - 30 * 86_400, now, now, 90),
+            (3600, Table::Hour)
+        );
     }
 }
