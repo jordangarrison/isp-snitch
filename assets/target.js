@@ -4,6 +4,7 @@
 
 const LABEL_W = 170;
 const AXIS_H = 22;
+const RIGHT_PAD = 12;
 const targetId = location.pathname.split("/").pop();
 
 let lossPlot = null;
@@ -32,7 +33,7 @@ function hatchPattern(ctx) {
 function geometry(canvas) {
   const w = canvas.clientWidth;
   const n = hops.ts.length;
-  const colW = (w - LABEL_W) / Math.max(1, n);
+  const colW = (w - LABEL_W - RIGHT_PAD) / Math.max(1, n);
   return { w, n, colW, rowH: rowHeight() };
 }
 
@@ -53,7 +54,7 @@ function drawHeat() {
   ctx.clearRect(0, 0, w, h);
   const hatch = hatchPattern(ctx);
   const gap = colW > 4 ? 1 : 0;
-  ctx.font = `12px ${css("--font")}`;
+  ctx.font = `12px ui-monospace, "SF Mono", Menlo, Consolas, monospace`;
   ctx.textBaseline = "middle";
 
   hops.hops.forEach((hop, r) => {
@@ -82,13 +83,17 @@ function drawHeat() {
   // Time axis.
   ctx.fillStyle = css("--muted");
   ctx.textBaseline = "top";
-  const ticks = Math.max(2, Math.floor((w - LABEL_W) / 140));
+  const ticks = Math.max(2, Math.floor((w - LABEL_W - RIGHT_PAD) / 150));
+  let lastEnd = -Infinity;
   for (let k = 0; k <= ticks; k++) {
     const i = Math.min(n - 1, Math.round((k / ticks) * (n - 1)));
     const x = LABEL_W + i * colW;
     const text = fmtTime(hops.ts[i]);
     const tw = ctx.measureText(text).width;
-    ctx.fillText(text, Math.min(Math.max(LABEL_W, x - tw / 2), w - tw), hops.hops.length * rowH + 5);
+    const x0 = Math.min(Math.max(LABEL_W, x - tw / 2), w - tw);
+    if (x0 < lastEnd + 12) continue;
+    ctx.fillText(text, x0, hops.hops.length * rowH + 5);
+    lastEnd = x0 + tw;
   }
 
   if (selected != null) {
@@ -148,6 +153,7 @@ async function onHeatClick(ev) {
   selected = c.i;
   drawHeat();
   const from = hops.ts[c.i];
+  writeAt(from);
   await loadSlice(from, from + hops.step);
 }
 
@@ -194,7 +200,7 @@ function drawLossChart(s) {
   const ax = axes((v) => v + "%");
   ax[1].size = LABEL_W;
   lossPlot = new uPlot({
-    width: chartWidth(el), height: 130, padding: [8, 0, 0, 0],
+    width: chartWidth(el), height: 130, padding: [8, RIGHT_PAD, 0, 0],
     cursor: { drag: { x: true, y: false } },
     scales: { x: { time: true }, y: { range: [0, max] } },
     axes: ax,
@@ -237,6 +243,13 @@ async function render() {
     drawLegend();
     drawHeat();
     if (!h.hops.length) document.getElementById("legend").innerHTML = `<p class="empty">No hop data in this range.</p>`;
+    const at = readAt();
+    const i = at == null ? -1 : h.ts.findIndex((t) => t <= at && at < t + h.step);
+    if (i >= 0) {
+      selected = i;
+      drawHeat();
+      await loadSlice(h.ts[i], h.ts[i] + h.step);
+    }
   } catch (e) {
     document.querySelector("main").innerHTML = `<p class="empty error">Could not load target: ${e.message}</p>`;
   }

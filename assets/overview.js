@@ -6,7 +6,7 @@ let plots = [];
 function lossChart(el, s, sync) {
   const max = Math.max(1, ...s.loss_pct.filter((v) => v != null));
   return new uPlot({
-    width: chartWidth(el), height: 110,
+    width: chartWidth(el), height: 140,
     cursor: { sync: { key: sync }, drag: { x: true, y: false } },
     scales: { x: { time: true }, y: { range: [0, max] } },
     axes: axes((v) => v + "%"),
@@ -21,7 +21,7 @@ function lossChart(el, s, sync) {
 
 function latencyChart(el, s, sync) {
   return new uPlot({
-    width: chartWidth(el), height: 110,
+    width: chartWidth(el), height: 140,
     cursor: { sync: { key: sync }, drag: { x: true, y: false } },
     scales: { x: { time: true }, y: { range: (u, lo, hi) => [0, Math.max(10, hi * 1.1)] } },
     axes: axes((v) => v + " ms"),

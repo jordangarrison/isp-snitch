@@ -19,6 +19,19 @@ function readRange() {
 function setRangeKey(key) { location.hash = "r=" + key; }
 function setRangeAbs(from, to) { location.hash = `from=${Math.floor(from)}&to=${Math.ceil(to)}`; }
 
+/** Selected heatmap bucket start (unix seconds) from the hash, if any. */
+function readAt() {
+  const v = parseInt(new URLSearchParams(location.hash.slice(1)).get("at"), 10);
+  return Number.isFinite(v) ? v : null;
+}
+
+/** Sets or clears `at` in the hash without triggering a re-render. */
+function writeAt(at) {
+  const p = new URLSearchParams(location.hash.slice(1));
+  if (at == null) p.delete("at"); else p.set("at", String(at));
+  history.replaceState(null, "", "#" + p.toString());
+}
+
 function renderRangeButtons(el, onChange) {
   const cur = readRange();
   el.innerHTML = "";
@@ -83,7 +96,7 @@ function axes(yLabelFmt) {
   const common = { stroke: css("--muted"), grid: { stroke: css("--grid"), width: 1 }, ticks: { show: false } };
   return [
     { ...common, space: 70 },
-    { ...common, size: 56, values: (u, vals) => vals.map(yLabelFmt) },
+    { ...common, size: 56, space: 24, values: (u, vals) => vals.map(yLabelFmt) },
   ];
 }
 
