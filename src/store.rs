@@ -214,19 +214,23 @@ impl Store {
         }
         let n = c.execute(
             "INSERT OR REPLACE INTO hop_hour
-             WITH m AS (
+             WITH m AS MATERIALIZED (
                 SELECT *, (ts / 3600) * 3600 AS h FROM hop_minute WHERE ts >= ?1 AND ts < ?2
-             ), best AS (
-                SELECT target_id, h, ttl, addr,
-                       row_number() OVER (PARTITION BY target_id, h, ttl ORDER BY recv DESC, ts DESC) AS rn
-                FROM m WHERE addr IS NOT NULL
+             ), agg AS MATERIALIZED (
+                SELECT target_id, h, ttl, sum(sent) AS sent, sum(recv) AS recv,
+                       sum(rtt_sum_us) AS rs, sum(rtt_sumsq_us2) AS rq,
+                       min(rtt_min_us) AS mn, max(rtt_max_us) AS mx,
+                       max(addr_count) AS ac, max(reached) AS r, sum(send_errors) AS se
+                FROM m GROUP BY target_id, h, ttl
+             ), best AS MATERIALIZED (
+                SELECT target_id, h, ttl, addr FROM (
+                    SELECT target_id, h, ttl, addr,
+                           row_number() OVER (PARTITION BY target_id, h, ttl ORDER BY recv DESC, ts DESC) AS rn
+                    FROM m WHERE addr IS NOT NULL
+                ) WHERE rn = 1
              )
-             SELECT m.target_id, m.h, m.ttl, sum(m.sent), sum(m.recv), sum(m.rtt_sum_us),
-                    sum(m.rtt_sumsq_us2), min(m.rtt_min_us), max(m.rtt_max_us),
-                    (SELECT b.addr FROM best b
-                      WHERE b.target_id = m.target_id AND b.h = m.h AND b.ttl = m.ttl AND b.rn = 1),
-                    max(m.addr_count), max(m.reached), sum(m.send_errors)
-             FROM m GROUP BY m.target_id, m.h, m.ttl",
+             SELECT agg.target_id, agg.h, agg.ttl, sent, recv, rs, rq, mn, mx, best.addr, ac, r, se
+             FROM agg LEFT JOIN best USING (target_id, h, ttl)",
             params![start, end],
         )?;
         Ok(n)
@@ -258,19 +262,23 @@ impl Store {
     ) -> Result<Vec<HopBucket>> {
         let c = self.conn();
         let sql = format!(
-            "WITH m AS (
-                SELECT *, (ts / ?4) * ?4 AS b FROM {t}
-                WHERE target_id = ?1 AND ts >= ?2 AND ts < ?3
-             ), best AS (
-                SELECT b, ttl, addr,
-                       row_number() OVER (PARTITION BY b, ttl ORDER BY recv DESC, ts DESC) AS rn
-                FROM m WHERE addr IS NOT NULL
+            "WITH m AS MATERIALIZED (
+                SELECT (ts / ?4) * ?4 AS b, ts, ttl, sent, recv, rtt_sum_us, rtt_min_us,
+                       rtt_max_us, addr, reached
+                FROM {t} WHERE target_id = ?1 AND ts >= ?2 AND ts < ?3
+             ), agg AS MATERIALIZED (
+                SELECT b, ttl, sum(sent) AS sent, sum(recv) AS recv, sum(rtt_sum_us) AS rs,
+                       min(rtt_min_us) AS mn, max(rtt_max_us) AS mx, max(reached) AS r
+                FROM m GROUP BY b, ttl
+             ), best AS MATERIALIZED (
+                SELECT b, ttl, addr FROM (
+                    SELECT b, ttl, addr,
+                           row_number() OVER (PARTITION BY b, ttl ORDER BY recv DESC, ts DESC) AS rn
+                    FROM m WHERE addr IS NOT NULL
+                ) WHERE rn = 1
              )
-             SELECT m.b, m.ttl, sum(m.sent), sum(m.recv), sum(m.rtt_sum_us),
-                    min(m.rtt_min_us), max(m.rtt_max_us),
-                    (SELECT best.addr FROM best WHERE best.b = m.b AND best.ttl = m.ttl AND best.rn = 1),
-                    max(m.reached)
-             FROM m GROUP BY m.b, m.ttl ORDER BY m.b, m.ttl",
+             SELECT agg.b, agg.ttl, sent, recv, rs, mn, mx, best.addr, r
+             FROM agg LEFT JOIN best USING (b, ttl) ORDER BY agg.b, agg.ttl",
             t = table.name()
         );
         let mut st = c.prepare_cached(&sql)?;
@@ -434,5 +442,38 @@ mod tests {
         let b = s.hop_buckets(Table::Minute, id, 0, 600, 60).unwrap();
         assert_eq!(b.len(), 1);
         assert_eq!(b[0].ts, 0);
+    }
+
+    /// One day of data for 3 targets x 12 hops: a 24h bucket query must stay fast.
+    #[test]
+    fn hop_buckets_day_of_data_is_fast() {
+        let s = Store::open_in_memory().unwrap();
+        let ids: Vec<i64> = ["1.1.1.1", "8.8.8.8", "9.9.9.9"]
+            .iter()
+            .map(|a| s.ensure_target(a, a.parse().unwrap()).unwrap())
+            .collect();
+        let mut rows = Vec::new();
+        for &id in &ids {
+            for m in 0..1440 {
+                for ttl in 1..=12 {
+                    rows.push(row(id, m * 60, ttl, 60, 59));
+                }
+            }
+        }
+        s.insert_minutes(&rows).unwrap();
+        let started = std::time::Instant::now();
+        let b = s
+            .hop_buckets(Table::Minute, ids[0], 0, 86_400, 300)
+            .unwrap();
+        let took = started.elapsed();
+        assert_eq!(b.len(), 288 * 12);
+        assert!(took.as_secs_f64() < 2.0, "24h hop_buckets took {took:?}");
+        let started = std::time::Instant::now();
+        s.rollup_hours(86_400).unwrap();
+        assert!(
+            started.elapsed().as_secs_f64() < 5.0,
+            "first rollup took {:?}",
+            started.elapsed()
+        );
     }
 }

@@ -19,3 +19,7 @@ toml = "1.1.8"
 http-body-util = "0.1.5"
 tempfile = "3.27.0"
 tower = { version = "0.5.3", features = ["util"] }
+
+# Optimize bundled SQLite in dev and test builds; query tests time it.
+[profile.dev.package.libsqlite3-sys]
+opt-level = 3
