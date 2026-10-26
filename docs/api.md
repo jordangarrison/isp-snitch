@@ -133,7 +133,7 @@ An mtr-style table for one window (the UI sends one bucket's bounds).
 ```json
 {"from": 1792886340, "to": 1792886400,
  "hops": [
-   {"ttl": 4, "addr": "174.111.74.206", "sent": 60, "recv": 48,
+   {"ttl": 4, "addr": "203.0.113.9", "sent": 60, "recv": 48,
     "loss_pct": 20.0, "eff_loss_pct": 0.0, "added_loss_pct": 0.0, "rate_limited": true, "reached": false,
     "avg_ms": 5.8, "min_ms": 4.5, "max_ms": 7.4, "addr_changed": false}
  ]}
