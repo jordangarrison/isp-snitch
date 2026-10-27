@@ -1,6 +1,7 @@
-# NixOS module: isp-snitch as a hardened systemd service, the same as
-# deploy/systemd/isp-snitch.service, with config.toml generated from
-# `services.isp-snitch.settings`. See docs/operations.md, "NixOS".
+# NixOS module: isp-snitch as a hardened systemd service, with config.toml
+# generated from `services.isp-snitch.settings`. See docs/operations.md,
+# "NixOS". The [Service] settings must match deploy/systemd/isp-snitch.service
+# (checked by nix/tests/unit-matches-deploy.nix).
 self:
 {
   config,
@@ -50,7 +51,11 @@ in
     openFirewall = lib.mkOption {
       type = lib.types.bool;
       default = false;
-      description = "Whether to open the TCP port of `settings.listen` in the firewall.";
+      description = ''
+        Whether to open the TCP port of `settings.listen` in the firewall, on
+        every interface. The UI has no login: to allow only the LAN, leave this
+        off and use `networking.firewall.interfaces.<name>.allowedTCPPorts`.
+      '';
     };
 
     settings = common.settingsOption { dbPathDefault = "/var/lib/isp-snitch/isp-snitch.db"; };
@@ -59,7 +64,12 @@ in
   config = lib.mkIf cfg.enable {
     assertions = [
       {
-        assertion = lib.hasPrefix "/var/lib/" (dirOf cfg.settings.db_path);
+        # A plain path one or more directories below /var/lib, so stateDir is a
+        # valid StateDirectory= ("//" or ".." would only fail at start).
+        assertion =
+          builtins.match "/var/lib(/[^/]+)+/[^/]+" cfg.settings.db_path != null
+          && !lib.elem ".." (lib.splitString "/" cfg.settings.db_path)
+          && !lib.elem "." (lib.splitString "/" cfg.settings.db_path);
         message = "services.isp-snitch.settings.db_path must be in a directory under /var/lib, the service's StateDirectory; it cannot write anywhere else.";
       }
       {

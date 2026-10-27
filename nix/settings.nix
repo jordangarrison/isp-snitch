@@ -6,6 +6,16 @@ let
   inherit (lib) mkOption types;
   format = pkgs.formats.toml { };
   positive = types.ints.positive;
+
+  # Unset (null) keys are left out of config.toml, so the binary's own
+  # defaults (src/config.rs) apply and Nix keeps no copy of them.
+  binaryDefault =
+    type: description:
+    mkOption {
+      type = types.nullOr type;
+      default = null;
+      description = "${description} `null` uses isp-snitch's default; see deploy/config.example.toml.";
+    };
 in
 {
   settingsOption =
@@ -53,26 +63,10 @@ in
             type = types.submodule {
               freeformType = format.type;
               options = {
-                interval_ms = mkOption {
-                  type = positive;
-                  default = 1000;
-                  description = "One round (a probe per hop) per target, this often.";
-                };
-                timeout_ms = mkOption {
-                  type = positive;
-                  default = 2000;
-                  description = "A probe with no answer after this counts as lost.";
-                };
-                max_ttl = mkOption {
-                  type = types.ints.between 1 64;
-                  default = 30;
-                  description = "Highest TTL probed while the target distance is unknown.";
-                };
-                probe_spacing_ms = mkOption {
-                  type = types.ints.unsigned;
-                  default = 5;
-                  description = "Gap between the probes of one round.";
-                };
+                interval_ms = binaryDefault positive "One round (a probe per hop) per target, this often.";
+                timeout_ms = binaryDefault positive "A probe with no answer after this counts as lost.";
+                max_ttl = binaryDefault (types.ints.between 1 64) "Highest TTL probed while the target distance is unknown.";
+                probe_spacing_ms = binaryDefault types.ints.unsigned "Gap between the probes of one round.";
               };
             };
           };
@@ -82,50 +76,25 @@ in
             type = types.submodule {
               freeformType = format.type;
               options = {
-                minute_days = mkOption {
-                  type = positive;
-                  default = 90;
-                  description = "Days of full 1-minute detail.";
-                };
-                hour_days = mkOption {
-                  type = positive;
-                  default = 365;
-                  description = "Days of hourly rollups.";
-                };
+                minute_days = binaryDefault positive "Days of full 1-minute detail.";
+                hour_days = binaryDefault positive "Days of hourly rollups.";
               };
             };
           };
-          targets = mkOption {
-            description = "Hosts to trace. IPv4 only; addresses must be unique.";
-            default = [
-              {
-                name = "Cloudflare";
-                addr = "1.1.1.1";
-              }
-              {
-                name = "Google";
-                addr = "8.8.8.8";
-              }
-              {
-                name = "Quad9";
-                addr = "9.9.9.9";
-              }
-            ];
-            type = types.nonEmptyListOf (
-              types.submodule {
-                options = {
-                  name = mkOption {
-                    type = types.str;
-                    description = "Label shown in the UI.";
-                  };
-                  addr = mkOption {
-                    type = types.str;
-                    description = "IPv4 address.";
-                  };
+          targets = binaryDefault (types.nonEmptyListOf (
+            types.submodule {
+              options = {
+                name = mkOption {
+                  type = types.str;
+                  description = "Label shown in the UI.";
                 };
-              }
-            );
-          };
+                addr = mkOption {
+                  type = types.str;
+                  description = "IPv4 address.";
+                };
+              };
+            }
+          )) "Hosts to trace, `{ name, addr }`. IPv4 only; addresses must be unique.";
         };
       };
     };
