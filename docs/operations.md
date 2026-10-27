@@ -120,6 +120,99 @@ distributions keep the kernel default `1 0`, which blocks ping sockets. Set
 it on the host first. The symptom is `transport_open_failed` events with
 "Permission denied" (`EACCES`).
 
+## NixOS
+
+The flake has a NixOS module. config.toml is generated from
+`services.isp-snitch.settings`, one attribute per key of
+`deploy/config.example.toml`, and checked with `isp-snitch check-config` at
+build time, so a bad setting fails the build, not the service.
+
+```nix
+{
+  inputs.isp-snitch.url = "github:mago0/isp-snitch";
+
+  outputs = { nixpkgs, isp-snitch, ... }: {
+    nixosConfigurations.bigone = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        isp-snitch.nixosModules.default
+        {
+          services.isp-snitch = {
+            enable = true;
+            settings = {
+              interface = "enp5s0";
+              listen = "0.0.0.0:9180";
+              retention.minute_days = 30;
+              targets = [
+                { name = "Cloudflare"; addr = "1.1.1.1"; }
+                { name = "Quad9"; addr = "9.9.9.9"; }
+              ];
+            };
+            openFirewall = true;   # opens the port of settings.listen
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
+The service is the same hardened unit as `deploy/systemd`: `DynamicUser`,
+no capabilities, and the directory of `settings.db_path` (default
+`/var/lib/isp-snitch/isp-snitch.db`) as its `StateDirectory`, so `db_path`
+must stay under `/var/lib`. NixOS sets `net.ipv4.ping_group_range` to
+`0 2147483647` by default; the module fails evaluation if it is set to a
+range that does not cover the dynamic user's group.
+
+There is no login. To reach the UI over HTTPS with a password, keep
+`listen` on loopback and put nginx in front:
+
+```nix
+services.nginx = {
+  enable = true;
+  recommendedProxySettings = true;
+  recommendedTlsSettings = true;
+  virtualHosts."isp-snitch.example.com" = {
+    forceSSL = true;
+    enableACME = true;
+    basicAuthFile = "/run/secrets/isp-snitch-htpasswd";
+    locations."/".proxyPass = "http://127.0.0.1:9180";
+  };
+};
+```
+
+## Home Manager
+
+`homeManagerModules.default` runs isp-snitch as a systemd user service, for
+a laptop or a host you do not manage with NixOS. It has the same `settings`.
+The config is written to `~/.config/isp-snitch/config.toml` and the
+database defaults to `~/.local/state/isp-snitch/isp-snitch.db`.
+
+```nix
+{
+  imports = [ isp-snitch.homeManagerModules.default ];
+  services.isp-snitch = {
+    enable = true;
+    settings.interface = "wlp2s0";
+  };
+}
+```
+
+A user service cannot change sysctls: `net.ipv4.ping_group_range` must
+already cover your group (see Requirements). On a non-NixOS host, enable
+lingering (`loginctl enable-linger`) to keep it running while you are logged
+out.
+
+## Check the Nix modules
+
+```
+nix --extra-experimental-features 'nix-command flakes' flake check
+```
+
+It builds the package and runs `checks.<system>.nixos-module`, a VM test in
+which a client traces a target through a router with probes bound to `eth1`.
+It needs KVM.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
