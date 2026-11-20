@@ -15,6 +15,8 @@
           version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
           src = pkgs.lib.cleanSource ./.;
           cargoLock.lockFile = ./Cargo.lock;
+          nativeBuildInputs = [ pkgs.pkg-config ];
+          buildInputs = [ pkgs.sqlite ];
           # Live tests open ICMP sockets, which the Nix build sandbox does not allow.
           doCheck = false;
           meta.mainProgram = "isp-snitch";
